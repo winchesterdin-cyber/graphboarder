@@ -18,11 +18,25 @@
 		modified: string;
 		/** The language for syntax highlighting */
 		language?: string;
+		/** Optional title for the diff viewer */
+		title?: string;
+		/** Optional label for the original side */
+		originalLabel?: string;
+		/** Optional label for the modified side */
+		modifiedLabel?: string;
 		/** Callback to close the viewer */
 		onClose: () => void;
 	}
 
-	let { original, modified, language = 'graphql', onClose }: Props = $props();
+	let {
+		original,
+		modified,
+		language = 'graphql',
+		title = 'Compare with History',
+		originalLabel = 'Original (History)',
+		modifiedLabel = 'Current (Editor)',
+		onClose
+	}: Props = $props();
 
 	let divEl: HTMLDivElement | undefined = $state();
 	let diffEditor: monaco.editor.IStandaloneDiffEditor | undefined = $state();
@@ -102,11 +116,11 @@
 	>
 		<div class="p-4 border-b border-base-300 flex justify-between items-center bg-base-200">
 			<div class="flex items-center gap-4">
-				<h3 class="text-xl font-bold">Compare with History</h3>
+				<h3 class="text-xl font-bold">{title}</h3>
 				<div class="text-sm breadcrumbs hidden sm:block">
 					<ul>
-						<li><span class="badge badge-neutral">Original (History)</span></li>
-						<li><span class="badge badge-primary">Current (Editor)</span></li>
+						<li><span class="badge badge-neutral">{originalLabel}</span></li>
+						<li><span class="badge badge-primary">{modifiedLabel}</span></li>
 					</ul>
 				</div>
 			</div>
