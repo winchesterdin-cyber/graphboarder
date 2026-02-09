@@ -183,6 +183,7 @@ Auto-GQL allows you to persist and restore executed queries.
 - **Manual:** You can manually add queries to history using `addToHistory`.
 - **Favorites:** You can mark queries as favorites (star icon) to keep them at the top of the list.
 - **Renaming:** Click on a query name in the history to rename it for easier identification.
+- **Details & Copy:** Expand a history entry to preview the full query and variables, then copy them to your clipboard.
 - **Backup & Restore:** You can export your full backup (including history and collections) to a JSON file and import it on another device.
 - **Compare:** Compare your current query with a saved version from history to see what has changed.
 
@@ -465,6 +466,14 @@ const qmsContext = getContext<QMSWraperContext>(`${prefix}QMSWraperContext`);
 ```bash
 npm test
 ```
+
+### Running E2E Tests
+
+```bash
+npm run test:e2e
+```
+
+Playwright runs a production build before starting the preview server, so the initial startup can take a couple minutes on slower machines.
 
 ### Building
 

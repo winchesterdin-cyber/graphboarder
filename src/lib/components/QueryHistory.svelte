@@ -38,9 +38,15 @@
 	let newCollectionName = $state('');
 	let editingCollectionId = $state<string | null>(null);
 	let editingCollectionName = $state('');
+	let expandedItems = $state<Set<string>>(new Set());
 
 	const formatDate = (timestamp: number) => {
 		return new Date(timestamp).toLocaleString();
+	};
+
+	const resetFilters = () => {
+		searchTerm = '';
+		selectedCollectionId = 'all';
 	};
 
 	const handleExport = () => {
@@ -95,6 +101,49 @@
 			renameCollection(id, editingCollectionName.trim());
 			editingCollectionId = null;
 			toast.success('Collection renamed');
+		}
+	};
+
+	const toggleDetails = (id: string) => {
+		const next = new Set(expandedItems);
+		if (next.has(id)) {
+			next.delete(id);
+			Logger.info('Collapsed history details', { id });
+		} else {
+			next.add(id);
+			Logger.info('Expanded history details', { id });
+		}
+		expandedItems = next;
+	};
+
+	const copyToClipboard = async (label: string, value?: string) => {
+		if (!value) {
+			Logger.warn('Copy requested with empty value', { label });
+			toast.warning(`No ${label.toLowerCase()} to copy.`);
+			return;
+		}
+
+		try {
+			// Clipboard APIs can be blocked in some environments, so we provide a DOM fallback.
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(value);
+			} else {
+				const textarea = document.createElement('textarea');
+				textarea.value = value;
+				textarea.setAttribute('readonly', 'true');
+				textarea.style.position = 'absolute';
+				textarea.style.left = '-9999px';
+				document.body.appendChild(textarea);
+				textarea.select();
+				document.execCommand('copy');
+				document.body.removeChild(textarea);
+			}
+
+			Logger.info('Copied item from history', { label });
+			toast.success(`${label} copied to clipboard.`);
+		} catch (error) {
+			Logger.error('Failed to copy from history', { label, error });
+			toast.error(`Unable to copy ${label.toLowerCase()}.`);
 		}
 	};
 
@@ -350,6 +399,11 @@
 					<div class="flex flex-col items-center justify-center h-full text-base-content/50">
 						<i class="bi bi-inbox text-4xl mb-2"></i>
 						<p>No queries found.</p>
+						{#if searchTerm || selectedCollectionId !== 'all'}
+							<button class="btn btn-xs btn-ghost mt-2" onclick={resetFilters}>
+								Clear filters
+							</button>
+						{/if}
 					</div>
 				{:else}
 					<div class="space-y-4">
@@ -398,6 +452,12 @@
 												<span>{formatDate(item.timestamp)}</span>
 												{#if item.endpointId}
 													<span class="badge badge-xs badge-outline">{item.endpointId}</span>
+												{/if}
+												{#if item.rowsCount !== undefined}
+													<span class="badge badge-xs badge-outline">
+														<i class="bi bi-table mr-1"></i>
+														{item.rowsCount} rows
+													</span>
 												{/if}
 												{#if item.collectionId}
 													{@const col = $queryCollections.find((c) => c.id === item.collectionId)}
@@ -461,6 +521,18 @@
 											>
 												<i class="bi {item.isFavorite ? 'bi-star-fill' : 'bi-star'}"></i>
 											</button>
+											<button
+												class="btn btn-sm btn-ghost"
+												onclick={() => toggleDetails(item.id)}
+												title="Show Details"
+												aria-expanded={expandedItems.has(item.id)}
+											>
+												<i
+													class="bi {expandedItems.has(item.id)
+														? 'bi-chevron-up'
+														: 'bi-chevron-down'}"
+												></i>
+											</button>
 											{#if onCompare}
 												<button
 													class="btn btn-sm btn-ghost"
@@ -502,6 +574,50 @@
 											class="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-base-300 pointer-events-none"
 										></div>
 									</div>
+
+									{#if expandedItems.has(item.id)}
+										<div class="mt-3 grid gap-3 md:grid-cols-2">
+											<div class="bg-base-300 rounded p-3 text-xs">
+												<div class="flex items-center justify-between mb-2">
+													<span class="font-semibold">Query</span>
+													<button
+														class="btn btn-xs btn-ghost"
+														onclick={() => copyToClipboard('Query', item.query)}
+														aria-label="Copy Query"
+													>
+														<i class="bi bi-clipboard"></i> Copy
+													</button>
+												</div>
+												<pre class="font-mono whitespace-pre-wrap break-words">
+{item.query}
+												</pre>
+											</div>
+											<div class="bg-base-300 rounded p-3 text-xs">
+												<div class="flex items-center justify-between mb-2">
+													<span class="font-semibold">Variables</span>
+													<button
+														class="btn btn-xs btn-ghost"
+														onclick={() =>
+															copyToClipboard(
+																'Variables',
+																item.variables ? JSON.stringify(item.variables, null, 2) : undefined
+															)}
+														aria-label="Copy Variables"
+														disabled={!item.variables}
+													>
+														<i class="bi bi-clipboard"></i> Copy
+													</button>
+												</div>
+												{#if item.variables}
+													<pre class="font-mono whitespace-pre-wrap break-words">
+{JSON.stringify(item.variables, null, 2)}
+													</pre>
+												{:else}
+													<p class="text-base-content/60 italic">No variables saved.</p>
+												{/if}
+											</div>
+										</div>
+									{/if}
 								</div>
 							</div>
 						{/each}

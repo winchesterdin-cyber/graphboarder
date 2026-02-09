@@ -55,4 +55,32 @@ describe('QueryHistory Component', () => {
 		expect(getByText('Export')).toBeTruthy();
 		expect(getByText('Import')).toBeTruthy();
 	});
+
+	it('should expand details and copy query text', async () => {
+		addToHistory({
+			query: 'query { test }',
+			endpointId: '1',
+			operationName: 'testQuery',
+			variables: { limit: 10 }
+		});
+
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(globalThis.navigator, 'clipboard', {
+			value: { writeText },
+			configurable: true
+		});
+
+		const { getByTitle, getByText, getByLabelText } = render(QueryHistory, {
+			props: {
+				onRestore: () => {},
+				onClose: () => {}
+			}
+		});
+
+		await fireEvent.click(getByTitle('Show Details'));
+		expect(getByText('Variables')).toBeTruthy();
+
+		await fireEvent.click(getByLabelText('Copy Query'));
+		expect(writeText).toHaveBeenCalledWith('query { test }');
+	});
 });
