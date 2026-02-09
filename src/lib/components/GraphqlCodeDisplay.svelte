@@ -17,8 +17,7 @@
 	import { generateCurlCommand } from '$lib/utils/curlUtils';
 	import { parseCurlCommand } from '$lib/utils/curlParser';
 	import { get } from 'svelte/store';
-	import { parse, print, stripIgnoredCharacters, type ASTNode } from 'graphql';
-	import JSON5 from 'json5';
+	import { parse, stripIgnoredCharacters } from 'graphql';
 	import QueryHistory from '$lib/components/QueryHistory.svelte';
 	import { addToHistory, type HistoryItem } from '$lib/stores/queryHistory';
 	import { generateMockData } from '$lib/utils/mockGenerator';
@@ -41,6 +40,7 @@
 		downloadTextFile
 	} from '$lib/utils/exportUtils';
 	import { findExportableRows } from '$lib/utils/resultExport';
+	import { buildExecutionSnapshot, type ExecutionSnapshot } from '$lib/utils/executionSnapshot';
 	import { getActiveEnvironment } from '$lib/stores/environmentStore';
 	import { substituteVariables } from '$lib/utils/variableSubstitutor';
 	import DiffViewer from '$lib/components/UI/DiffViewer.svelte';
@@ -158,7 +158,6 @@
 
 	let astAsString = $state('');
 	let ast = $state();
-	let astPrinted = $state();
 	let isCopied = $state(false);
 	let isCurlCopied = $state(false);
 	let isMarkdownCopied = $state(false);
@@ -181,8 +180,11 @@
 	);
 	let showDiffViewer = $state(false);
 	let diffOriginal = $state('');
+	let showExecutionDiffViewer = $state(false);
 	let isCsvCopied = $state(false);
 	let isResultMarkdownCopied = $state(false);
+	let previousExecutionSnapshot = $state<ExecutionSnapshot | null>(null);
+	let currentExecutionSnapshot = $state<ExecutionSnapshot | null>(null);
 
 	let codeEditorInstance = $state<{ prettify?: () => Promise<void> } | null>(null);
 	let exportRowsInfo = $derived(findExportableRows(executionPayload));
@@ -376,7 +378,15 @@
 
 		isExecuting = true;
 		showExecutionResult = true;
+		showExecutionDiffViewer = false;
 		executionResult = 'Loading...';
+		// Preserve the last successful snapshot so users can compare results across runs.
+		if (currentExecutionSnapshot) {
+			previousExecutionSnapshot = currentExecutionSnapshot;
+			Logger.info('Stored previous execution snapshot', {
+				createdAt: currentExecutionSnapshot.createdAt
+			});
+		}
 		executionPayload = null;
 		executionTime = 0;
 		responseSize = 0;
@@ -410,6 +420,17 @@
 				executionResult = JSON.stringify(result.data, null, 2);
 				executionPayload = result.data;
 				responseSize = calculateResponseSize(result.data);
+				currentExecutionSnapshot = buildExecutionSnapshot({
+					payload: result.data,
+					result: executionResult,
+					executionTimeMs: executionTime,
+					responseSizeBytes: responseSize
+				});
+				Logger.info('Captured execution snapshot', {
+					createdAt: currentExecutionSnapshot.createdAt,
+					exportRowsCount: currentExecutionSnapshot.exportRowsCount,
+					exportRowsPath: currentExecutionSnapshot.exportRowsPath
+				});
 				toast.success(`Query executed in ${executionTime}ms`);
 			}
 		} catch (e) {
@@ -714,12 +735,6 @@
 		}
 	});
 	$effect(() => {
-		if (ast) {
-			astPrinted = print(ast as ASTNode);
-		}
-	});
-
-	$effect(() => {
 		// Calculate complexity when query changes
 		if (value) {
 			queryComplexity = calculateComplexity(value);
@@ -727,7 +742,7 @@
 	});
 	$effect(() => {
 		if (getPreciseType(ast) == 'object') {
-			astAsString = JSON5.stringify(ast);
+			astAsString = JSON.stringify(ast);
 		}
 	});
 </script>
@@ -984,6 +999,28 @@
 						</button>
 						<button
 							class="btn btn-xs btn-ghost"
+							disabled={!previousExecutionSnapshot || executionResult === 'Loading...'}
+							title={previousExecutionSnapshot
+								? `Compare with previous run from ${new Date(
+										previousExecutionSnapshot.createdAt
+									).toLocaleString()}`
+								: 'No previous result available'}
+							onclick={() => {
+								if (!previousExecutionSnapshot) {
+									Logger.warn('Execution diff requested without a previous snapshot');
+									toast.warning('No previous result to compare');
+									return;
+								}
+								Logger.info('Opening execution result diff', {
+									previousCreatedAt: previousExecutionSnapshot.createdAt
+								});
+								showExecutionDiffViewer = true;
+							}}
+						>
+							<i class="bi bi-file-diff"></i> Compare Previous
+						</button>
+						<button
+							class="btn btn-xs btn-ghost"
 							disabled={!executionPayload}
 							title={executionPayload ? 'Download result as JSON' : 'No execution data to download'}
 							onclick={handleDownloadExecutionJSON}
@@ -1114,11 +1151,6 @@
 					/>
 				</div>
 			{/if}
-			{#if astPrinted}
-				<div class="mx-4 mt-2">
-					<!-- <CodeEditor rawValue={astPrinted as string} language="graphql" /> -->
-				</div>
-			{/if}
 		{/if}
 	</div>
 	<button
@@ -1141,6 +1173,18 @@
 
 {#if showDiffViewer}
 	<DiffViewer original={diffOriginal} modified={value} onClose={() => (showDiffViewer = false)} />
+{/if}
+
+{#if showExecutionDiffViewer && previousExecutionSnapshot}
+	<DiffViewer
+		original={previousExecutionSnapshot.result}
+		modified={executionResult}
+		language="json"
+		title="Compare Results"
+		originalLabel="Previous Run"
+		modifiedLabel="Current Run"
+		onClose={() => (showExecutionDiffViewer = false)}
+	/>
 {/if}
 
 {#if showImportModal}

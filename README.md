@@ -352,6 +352,7 @@ You can execute the current query directly from the `GraphqlCodeDisplay` compone
 - Download the execution result as a **Markdown** file when you want a ready-to-share artifact.
 - Download the execution result as a **text** file when you need a simple plain-text export.
 - Download exportable rows as **JSONL** when you need newline-delimited JSON for streaming tools.
+- Compare the current execution result with the **previous run** using the **Compare Previous** button (diff view highlights changes).
 
 ## Code Snippets
 
