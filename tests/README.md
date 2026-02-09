@@ -116,6 +116,8 @@ npx playwright test tests/advanced-user-flows.spec.ts --debug
 npx playwright show-report
 ```
 
+Playwright is configured to only run specs inside the `tests/` directory.
+
 ## Test Architecture
 
 ### Helper Functions
