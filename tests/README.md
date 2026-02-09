@@ -209,7 +209,7 @@ The test suite covers:
    ```typescript
    const elementExists = await element.isVisible().catch(() => false);
    if (elementExists) {
-	// interact with element
+   	// interact with element
    }
    ```
 

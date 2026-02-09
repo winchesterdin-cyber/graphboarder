@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { convertArrayToCSV } from './exportUtils';
+import { convertArrayToCSV, downloadTextFile } from './exportUtils';
 
 describe('exportUtils', () => {
 	describe('convertArrayToCSV', () => {
@@ -42,6 +42,12 @@ describe('exportUtils', () => {
 
 		it('should return empty string for empty array', () => {
 			expect(convertArrayToCSV([])).toBe('');
+		});
+	});
+
+	describe('downloadTextFile', () => {
+		it('should no-op when content is empty', () => {
+			expect(() => downloadTextFile('', 'empty.txt')).not.toThrow();
 		});
 	});
 });
