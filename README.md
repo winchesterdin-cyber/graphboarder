@@ -1,5 +1,5 @@
 # Auto-GQL (GraphBoarder)
-  
+
 A powerful Svelte 5 library for auto-generating GraphQL UIs, handling complex queries, filtering, sorting, and pagination with ease.
 
 ## Features
@@ -343,9 +343,15 @@ You can execute the current query directly from the `GraphqlCodeDisplay` compone
 
 - **Access:** In the code display view, click the **Execute** button (<i class="bi bi-play-fill"></i>).
 - **Functionality:**
-  - Executes the query using the configured URQL client.
-  - Displays the JSON result (or error) in a dedicated view within the component.
-  - Allows copying the result to clipboard.
+- Executes the query using the configured URQL client.
+- Displays the JSON result (or error) in a dedicated view within the component.
+- Allows copying the result to clipboard.
+- Download the result as **JSON** or **CSV** from the execution result toolbar. CSV export uses the first array of objects in the response.
+- Copy the exportable **CSV** to your clipboard for quick pasting when a download is not needed.
+- Copy the execution result as a **Markdown** code block for sharing in docs or issues.
+- Download the execution result as a **Markdown** file when you want a ready-to-share artifact.
+- Download the execution result as a **text** file when you need a simple plain-text export.
+- Download exportable rows as **JSONL** when you need newline-delimited JSON for streaming tools.
 
 ## Code Snippets
 
@@ -433,6 +439,8 @@ See `EndpointConfiguration` interface in the codebase for full options.
 ## Development
 
 This project uses Svelte 5 Runes (`$state`, `$derived`, `$props`).
+
+See `agents.md` for repository stability and testing expectations.
 
 ### Type Safety & Context
 

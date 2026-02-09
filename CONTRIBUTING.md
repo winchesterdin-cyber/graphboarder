@@ -31,6 +31,7 @@ Thank you for your interest in contributing to Auto-GQL!
 ## Code Style
 
 - This project uses Prettier for code formatting.
+- The `npm run lint` script focuses on the core GraphqlCodeDisplay/export utilities to keep lint noise low while the broader codebase is cleaned up.
 - We use Svelte 5 Runes syntax (`$state`, `$derived`, `$props`).
 
 ## Logging

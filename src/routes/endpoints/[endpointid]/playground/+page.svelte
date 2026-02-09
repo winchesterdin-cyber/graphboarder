@@ -131,9 +131,7 @@
 	}
 
 	function handleCloseAllTabs() {
-		if (
-			!confirm('Are you sure you want to close all tabs? This will reset the playground.')
-		)
+		if (!confirm('Are you sure you want to close all tabs? This will reset the playground.'))
 			return;
 		const result = closeAllTabs();
 		tabs = result.tabs;

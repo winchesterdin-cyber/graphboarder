@@ -59,6 +59,14 @@ declare namespace App {
 
 **Location:** `src/app.d.ts:4-37`
 
+### 2. Export Utility Type Safety
+
+**Status:** ✅ Complete
+
+Converted CSV export helpers to use explicit `Record<string, unknown>` rows and safe string coercion to avoid `any` usage.
+
+**Location:** `src/lib/utils/exportUtils.ts`
+
 ### 2. Core Type System
 
 **Status:** ✅ Comprehensive
@@ -343,7 +351,7 @@ const context = getContext<MyContextType>('myContext');
 
    ```svelte
    <script lang="ts">
-	// Your typed code here
+   	// Your typed code here
    </script>
    ```
 
@@ -373,8 +381,8 @@ const context = getContext<MyContextType>('myContext');
     * @property offset - Starting position
     */
    interface PaginationState {
-	limit: number;
-	offset: number;
+   	limit: number;
+   	offset: number;
    }
    ```
 

@@ -25,7 +25,6 @@
 	import { generatePostmanCollectionForQuery } from '$lib/utils/postmanUtils';
 	import Modal from '$lib/components/Modal.svelte';
 	import { toast } from '$lib/stores/toastStore';
-	import LoadingSpinner from '$lib/components/UI/LoadingSpinner.svelte';
 	import { generateSnippet, SUPPORTED_LANGUAGES } from '$lib/utils/snippetGenerator';
 	import { compressQuery, decompressQuery } from '$lib/utils/shareUtils';
 	import { extractVariables } from '$lib/utils/variableExtractor';
@@ -35,23 +34,31 @@
 		formatBytes,
 		type QueryComplexity
 	} from '$lib/utils/queryAnalyzer';
+	import {
+		convertArrayToCSV,
+		downloadCSV,
+		downloadJSONValue,
+		downloadTextFile
+	} from '$lib/utils/exportUtils';
+	import { findExportableRows } from '$lib/utils/resultExport';
 	import { getActiveEnvironment } from '$lib/stores/environmentStore';
 	import { substituteVariables } from '$lib/utils/variableSubstitutor';
 	import DiffViewer from '$lib/components/UI/DiffViewer.svelte';
+	import type { OperationResult } from '@urql/core';
 
 	interface Props {
 		/**
 		 * Whether to show the raw, non-prettified query body.
 		 */
-		showNonPrettifiedQMSBody?: any;
+		showNonPrettifiedQMSBody?: boolean;
 		/**
 		 * The GraphQL query string to display.
 		 */
-		value: any;
+		value: string;
 		/**
 		 * The variables JSON string.
 		 */
-		variablesString?: any;
+		variablesString?: string;
 		/**
 		 * Whether to enable syncing changes in the editor back to the UI stores.
 		 * Default: true
@@ -67,24 +74,34 @@
 		enableShareUrl?: boolean;
 	}
 
+	type UrqlClient = {
+		query: (
+			query: string,
+			variables: Record<string, unknown>
+		) => { toPromise: () => Promise<OperationResult<unknown>> };
+		mutation: (
+			query: string,
+			variables: Record<string, unknown>
+		) => { toPromise: () => Promise<OperationResult<unknown>> };
+	};
+
 	let {
 		showNonPrettifiedQMSBody = $bindable(false),
-		value = $bindable(),
+		value = $bindable(''),
 		variablesString = $bindable('{}'),
 		enableSyncToUI = true,
 		prefix = '',
 		enableShareUrl = false
 	}: Props = $props();
 
-	let valueModifiedManually = $state();
-	let lastSyncedValue = $state(untrack(() => value));
+	let valueModifiedManually = $state<string>(value);
+	let lastSyncedValue = $state<string>(untrack(() => value));
 	let showVariables = $state(false);
 
 	// Try to get context if available
 	import type { QMSMainWraperContext, QMSWraperContext } from '$lib/types/index';
 	let qmsWraperCtx = $state<QMSWraperContext>();
 	let mainWraperCtx = $state<QMSMainWraperContext>();
-	let currentQMS_info;
 
 	try {
 		qmsWraperCtx = getContext<QMSWraperContext>(`${untrack(() => prefix)}QMSWraperContext`);
@@ -107,7 +124,9 @@
 				// If getLanguage fails, attempt registration anyway to be safe
 				try {
 					hljs.registerLanguage('graphql', graphql);
-				} catch (e2) {}
+				} catch (e2) {
+					Logger.debug('GraphqlCodeDisplay: Highlight language registration failed', e2);
+				}
 			}
 		}
 	} catch (e) {
@@ -124,23 +143,6 @@
 		}
 	});
 
-	const safeHighlight = (code: string) => {
-		try {
-			const formatted = format(code);
-			if (typeof hljs !== 'undefined' && hljs.highlight) {
-				// Explicitly use graphql language if possible
-				return hljs.highlight(formatted, { language: 'graphql' }).value;
-			}
-			return formatted;
-		} catch (e) {
-			try {
-				return format(code);
-			} catch (e2) {
-				return code;
-			}
-		}
-	};
-
 	const handleMinify = () => {
 		try {
 			Logger.info('Minifying query...');
@@ -155,7 +157,6 @@
 	};
 
 	let astAsString = $state('');
-	let astAsString2 = '';
 	let ast = $state();
 	let astPrinted = $state();
 	let isCopied = $state(false);
@@ -168,6 +169,7 @@
 	let showMockData = $state(false);
 	let isExecuting = $state(false);
 	let executionResult = $state('');
+	let executionPayload = $state<unknown>(null);
 	let showExecutionResult = $state(false);
 	let executionTime = $state(0);
 	let responseSize = $state(0);
@@ -179,8 +181,12 @@
 	);
 	let showDiffViewer = $state(false);
 	let diffOriginal = $state('');
+	let isCsvCopied = $state(false);
+	let isResultMarkdownCopied = $state(false);
 
-	let codeEditorInstance = $state<any>();
+	let codeEditorInstance = $state<{ prettify?: () => Promise<void> } | null>(null);
+	let exportRowsInfo = $derived(findExportableRows(executionPayload));
+	let hasExportRows = $derived(!!exportRowsInfo && exportRowsInfo.rows.length > 0);
 
 	/**
 	 * Formats the query using the CodeEditor's prettify function or a fallback.
@@ -225,7 +231,7 @@
 
 			// Merge: Keep existing values if keys match, otherwise use default from extracted.
 			// Discard variables that are no longer in the query.
-			const finalVariables: Record<string, any> = {};
+			const finalVariables: Record<string, unknown> = {};
 			for (const key in extracted) {
 				if (Object.prototype.hasOwnProperty.call(currentVariables, key)) {
 					finalVariables[key] = currentVariables[key];
@@ -337,7 +343,7 @@
 			return;
 		}
 
-		const client = get(mainWraperCtx.urqlCoreClient) as any;
+		const client = get(mainWraperCtx.urqlCoreClient) as UrqlClient | null;
 		if (!client) {
 			toast.error('GraphQL Client not initialized');
 			return;
@@ -371,6 +377,7 @@
 		isExecuting = true;
 		showExecutionResult = true;
 		executionResult = 'Loading...';
+		executionPayload = null;
 		executionTime = 0;
 		responseSize = 0;
 		const startTime = performance.now();
@@ -380,16 +387,6 @@
 			const isMutation = value.trim().startsWith('mutation');
 
 			let result;
-			const opOptions = {
-				fetchOptions: () => {
-					// Ensure headers are up to date
-					const info = get(mainWraperCtx!.endpointInfo);
-					let headers = info.headers || {};
-					// Merge with local storage headers if any logic requires it,
-					// but MainWraper client already handles this via fetchOptions callback.
-					return {};
-				}
-			};
 
 			Logger.info(`Executing ${isMutation ? 'mutation' : 'query'}...`, { variables });
 
@@ -405,21 +402,193 @@
 			if (result.error) {
 				Logger.error('Execution failed', result.error);
 				executionResult = JSON.stringify(result.error, null, 2);
+				executionPayload = null;
 				toast.error('Query execution failed');
 				responseSize = 0;
 			} else {
 				Logger.info('Execution successful', { executionTime });
 				executionResult = JSON.stringify(result.data, null, 2);
+				executionPayload = result.data;
 				responseSize = calculateResponseSize(result.data);
 				toast.success(`Query executed in ${executionTime}ms`);
 			}
 		} catch (e) {
 			Logger.error('Execution error', e);
 			executionResult = JSON.stringify({ error: (e as Error).message }, null, 2);
+			executionPayload = null;
 			toast.error('An error occurred during execution');
 		} finally {
 			isExecuting = false;
 		}
+	};
+
+	const handleDownloadExecutionJSON = () => {
+		if (!executionPayload) {
+			toast.warning('No execution data to download');
+			Logger.warn('Execution download JSON failed: No payload');
+			return;
+		}
+
+		const filename = `${qmsWraperCtx?.QMSName || 'query'}-result.json`;
+		downloadJSONValue(executionPayload, filename);
+		Logger.info('Downloaded execution result JSON', { filename });
+	};
+
+	const handleDownloadExecutionCSV = () => {
+		if (!exportRowsInfo) {
+			toast.warning('No tabular data found for CSV export');
+			Logger.warn('Execution download CSV failed: No exportable rows');
+			return;
+		}
+
+		if (exportRowsInfo.rows.length === 0) {
+			toast.warning('No rows available for CSV export');
+			Logger.warn('Execution download CSV failed: Empty rows', {
+				path: exportRowsInfo.path
+			});
+			return;
+		}
+
+		const filename = `${qmsWraperCtx?.QMSName || 'query'}-result.csv`;
+		downloadCSV(exportRowsInfo.rows, filename);
+		Logger.info('Downloaded execution result CSV', {
+			filename,
+			rowCount: exportRowsInfo.rows.length,
+			path: exportRowsInfo.path
+		});
+	};
+
+	/**
+	 * Copies the exportable CSV to the clipboard for quick pasting.
+	 * Useful for small datasets when a download is not desired.
+	 */
+	const handleCopyExecutionCSV = async () => {
+		if (!exportRowsInfo) {
+			toast.warning('No tabular data found for CSV copy');
+			Logger.warn('Execution copy CSV failed: No exportable rows');
+			return;
+		}
+
+		if (exportRowsInfo.rows.length === 0) {
+			toast.warning('No rows available for CSV copy');
+			Logger.warn('Execution copy CSV failed: Empty rows', {
+				path: exportRowsInfo.path
+			});
+			return;
+		}
+
+		if (!navigator?.clipboard?.writeText) {
+			toast.error('Clipboard access is not available');
+			Logger.error('Execution copy CSV failed: Clipboard unavailable');
+			return;
+		}
+
+		try {
+			const csv = convertArrayToCSV(exportRowsInfo.rows);
+			await navigator.clipboard.writeText(csv);
+			isCsvCopied = true;
+			setTimeout(() => (isCsvCopied = false), 2000);
+			Logger.info('Copied execution result CSV to clipboard', {
+				rowCount: exportRowsInfo.rows.length,
+				path: exportRowsInfo.path
+			});
+			toast.success('CSV copied to clipboard');
+		} catch (e) {
+			Logger.error('Execution copy CSV failed', e);
+			toast.error('Failed to copy CSV');
+		}
+	};
+
+	/**
+	 * Copies the execution result as a Markdown code block.
+	 * Helps sharing results in docs or issues with proper formatting.
+	 */
+	const handleCopyExecutionMarkdown = async () => {
+		if (!executionResult) {
+			toast.warning('No execution result to copy');
+			Logger.warn('Execution copy Markdown failed: No result');
+			return;
+		}
+
+		if (!navigator?.clipboard?.writeText) {
+			toast.error('Clipboard access is not available');
+			Logger.error('Execution copy Markdown failed: Clipboard unavailable');
+			return;
+		}
+
+		try {
+			const markdown = `\`\`\`json\n${executionResult}\n\`\`\``;
+			await navigator.clipboard.writeText(markdown);
+			isResultMarkdownCopied = true;
+			setTimeout(() => (isResultMarkdownCopied = false), 2000);
+			Logger.info('Copied execution result as Markdown');
+			toast.success('Result copied as Markdown');
+		} catch (e) {
+			Logger.error('Execution copy Markdown failed', e);
+			toast.error('Failed to copy result as Markdown');
+		}
+	};
+
+	/**
+	 * Downloads the execution result as a Markdown file for easy sharing.
+	 */
+	const handleDownloadExecutionMarkdown = () => {
+		if (!executionResult || executionResult === 'Loading...') {
+			toast.warning('No execution result to download');
+			Logger.warn('Execution download Markdown failed: No result');
+			return;
+		}
+
+		const filename = `${qmsWraperCtx?.QMSName || 'query'}-result.md`;
+		const markdown = `\`\`\`json\n${executionResult}\n\`\`\``;
+		downloadTextFile(markdown, filename, 'text/markdown;charset=utf-8;');
+		Logger.info('Downloaded execution result Markdown', { filename });
+		toast.success('Result downloaded as Markdown');
+	};
+
+	/**
+	 * Downloads the execution result as a plain text file for quick sharing.
+	 */
+	const handleDownloadExecutionText = () => {
+		if (!executionResult || executionResult === 'Loading...') {
+			toast.warning('No execution result to download');
+			Logger.warn('Execution download text failed: No result');
+			return;
+		}
+
+		const filename = `${qmsWraperCtx?.QMSName || 'query'}-result.txt`;
+		downloadTextFile(executionResult, filename);
+		Logger.info('Downloaded execution result text', { filename });
+		toast.success('Result downloaded as text');
+	};
+
+	/**
+	 * Downloads exportable rows as JSONL for easy streaming ingestion.
+	 */
+	const handleDownloadExecutionJsonl = () => {
+		if (!exportRowsInfo) {
+			toast.warning('No tabular data found for JSONL export');
+			Logger.warn('Execution download JSONL failed: No exportable rows');
+			return;
+		}
+
+		if (exportRowsInfo.rows.length === 0) {
+			toast.warning('No rows available for JSONL export');
+			Logger.warn('Execution download JSONL failed: Empty rows', {
+				path: exportRowsInfo.path
+			});
+			return;
+		}
+
+		const filename = `${qmsWraperCtx?.QMSName || 'query'}-result.jsonl`;
+		const jsonl = exportRowsInfo.rows.map((row) => JSON.stringify(row)).join('\n');
+		downloadTextFile(jsonl, filename, 'application/x-ndjson;charset=utf-8;');
+		Logger.info('Downloaded execution result JSONL', {
+			filename,
+			rowCount: exportRowsInfo.rows.length,
+			path: exportRowsInfo.path
+		});
+		toast.success('Result downloaded as JSONL');
 	};
 
 	const handleGenerateMockData = () => {
@@ -465,7 +634,9 @@
 					if (stored) {
 						try {
 							existingHeaders = JSON.parse(stored);
-						} catch (e) {}
+						} catch (e) {
+							Logger.warn('Failed to parse stored headers during cURL import', e);
+						}
 					}
 
 					const newHeaders = { ...existingHeaders, ...parsed.headers };
@@ -791,6 +962,15 @@
 								{formatBytes(responseSize)}
 							</div>
 						{/if}
+						{#if exportRowsInfo}
+							<div
+								class="badge badge-outline gap-1"
+								title={`Export source: ${exportRowsInfo.path}`}
+							>
+								<i class="bi bi-table"></i>
+								{exportRowsInfo.rows.length} rows
+							</div>
+						{/if}
 					</div>
 					<div class="flex gap-2">
 						<button
@@ -801,6 +981,76 @@
 							}}
 						>
 							<i class="bi bi-clipboard"></i> Copy
+						</button>
+						<button
+							class="btn btn-xs btn-ghost"
+							disabled={!executionPayload}
+							title={executionPayload ? 'Download result as JSON' : 'No execution data to download'}
+							onclick={handleDownloadExecutionJSON}
+						>
+							<i class="bi bi-filetype-json"></i> Download JSON
+						</button>
+						<button
+							class="btn btn-xs btn-ghost"
+							disabled={!hasExportRows}
+							title={hasExportRows
+								? `Download CSV from ${exportRowsInfo?.path}`
+								: 'No tabular data found for CSV export'}
+							onclick={handleDownloadExecutionCSV}
+						>
+							<i class="bi bi-filetype-csv"></i> Download CSV
+						</button>
+						<button
+							class="btn btn-xs btn-ghost"
+							disabled={!hasExportRows}
+							title={hasExportRows
+								? `Copy CSV from ${exportRowsInfo?.path}`
+								: 'No tabular data found for CSV copy'}
+							onclick={handleCopyExecutionCSV}
+						>
+							{#if isCsvCopied}
+								<i class="bi bi-check"></i> Copied CSV!
+							{:else}
+								<i class="bi bi-clipboard-plus"></i> Copy CSV
+							{/if}
+						</button>
+						<button
+							class="btn btn-xs btn-ghost"
+							disabled={!executionResult || executionResult === 'Loading...'}
+							title="Copy result as Markdown"
+							onclick={handleCopyExecutionMarkdown}
+						>
+							{#if isResultMarkdownCopied}
+								<i class="bi bi-check"></i> Copied MD!
+							{:else}
+								<i class="bi bi-markdown"></i> Copy Result MD
+							{/if}
+						</button>
+						<button
+							class="btn btn-xs btn-ghost"
+							disabled={!executionResult || executionResult === 'Loading...'}
+							title="Download result as Markdown"
+							onclick={handleDownloadExecutionMarkdown}
+						>
+							<i class="bi bi-filetype-md"></i> Download Result MD
+						</button>
+						<button
+							class="btn btn-xs btn-ghost"
+							disabled={!executionResult || executionResult === 'Loading...'}
+							title="Download result as text"
+							onclick={handleDownloadExecutionText}
+						>
+							<i class="bi bi-filetype-txt"></i> Download Result TXT
+						</button>
+						<button
+							class="btn btn-xs btn-ghost"
+							disabled={!hasExportRows}
+							title={hasExportRows
+								? `Download JSONL from ${exportRowsInfo?.path}`
+								: 'No tabular data found for JSONL export'}
+							onclick={handleDownloadExecutionJsonl}
+						>
+							<i class="bi bi-filetype-json"></i> Download JSONL
 						</button>
 						<button class="btn btn-xs btn-ghost" onclick={() => (showExecutionResult = false)}
 							>✕ Close</button
@@ -825,7 +1075,7 @@
 				<code class="px-10">{astAsString}</code>
 			</div>
 		{:else}
-			<code class="language-graphql">{@html safeHighlight(value)}</code>
+			<code class="language-graphql">{value}</code>
 			<div class="mx-4 mt-2">
 				<CodeEditor
 					bind:this={codeEditorInstance}
@@ -890,11 +1140,7 @@
 {/if}
 
 {#if showDiffViewer}
-	<DiffViewer
-		original={diffOriginal}
-		modified={value}
-		onClose={() => (showDiffViewer = false)}
-	/>
+	<DiffViewer original={diffOriginal} modified={value} onClose={() => (showDiffViewer = false)} />
 {/if}
 
 {#if showImportModal}
