@@ -72,6 +72,21 @@
 		 * Whether to enable sharing the query via URL.
 		 */
 		enableShareUrl?: boolean;
+		/**
+		 * Warn when query depth exceeds this threshold.
+		 * Default: 8
+		 */
+		complexityWarningDepth?: number;
+		/**
+		 * Warn when query field count exceeds this threshold.
+		 * Default: 120
+		 */
+		complexityWarningFieldCount?: number;
+		/**
+		 * Warn when execution time exceeds this threshold (ms).
+		 * Default: 2000
+		 */
+		slowQueryThresholdMs?: number;
 	}
 
 	type UrqlClient = {
@@ -91,7 +106,10 @@
 		variablesString = $bindable('{}'),
 		enableSyncToUI = true,
 		prefix = '',
-		enableShareUrl = false
+		enableShareUrl = false,
+		complexityWarningDepth = 8,
+		complexityWarningFieldCount = 120,
+		slowQueryThresholdMs = 2000
 	}: Props = $props();
 
 	let valueModifiedManually = $state<string>(value);
@@ -173,6 +191,7 @@
 	let executionTime = $state(0);
 	let responseSize = $state(0);
 	let queryComplexity = $state<QueryComplexity>({ depth: 0, fieldCount: 0 });
+	let lastComplexityWarning = $state<string | null>(null);
 	let showSnippetsModal = $state(false);
 	let selectedSnippetLanguage = $state('javascript-fetch');
 	let snippetEditorLanguage = $derived(
@@ -189,6 +208,29 @@
 	let codeEditorInstance = $state<{ prettify?: () => Promise<void> } | null>(null);
 	let exportRowsInfo = $derived(findExportableRows(executionPayload));
 	let hasExportRows = $derived(!!exportRowsInfo && exportRowsInfo.rows.length > 0);
+	let complexityWarningStatus = $derived.by(() => {
+		/**
+		 * Guardrails are opt-out by setting thresholds to 0 or below, which is useful for
+		 * teams that prefer to disable warnings while still showing complexity metrics.
+		 */
+		const isDepthThresholdEnabled = complexityWarningDepth > 0;
+		const isFieldThresholdEnabled = complexityWarningFieldCount > 0;
+		const depthExceeded = isDepthThresholdEnabled && queryComplexity.depth > complexityWarningDepth;
+		const fieldsExceeded =
+			isFieldThresholdEnabled && queryComplexity.fieldCount > complexityWarningFieldCount;
+		const reasons = [];
+		if (depthExceeded) {
+			reasons.push(`depth > ${complexityWarningDepth}`);
+		}
+		if (fieldsExceeded) {
+			reasons.push(`fields > ${complexityWarningFieldCount}`);
+		}
+		return {
+			isWarning: depthExceeded || fieldsExceeded,
+			reasons,
+			message: reasons.length > 0 ? `High complexity: ${reasons.join(', ')}` : ''
+		};
+	});
 
 	/**
 	 * Formats the query using the CodeEditor's prettify function or a fallback.
@@ -408,6 +450,14 @@
 
 			const endTime = performance.now();
 			executionTime = Math.round(endTime - startTime);
+			if (slowQueryThresholdMs > 0 && executionTime >= slowQueryThresholdMs) {
+				Logger.warn('Slow query detected', {
+					executionTime,
+					thresholdMs: slowQueryThresholdMs,
+					operationName: qmsWraperCtx?.QMSName || 'Query'
+				});
+				toast.warning(`Slow query: ${executionTime}ms`);
+			}
 
 			if (result.error) {
 				Logger.error('Execution failed', result.error);
@@ -741,6 +791,31 @@
 		}
 	});
 	$effect(() => {
+		/**
+		 * Avoid log spam by only reporting complexity warnings when the
+		 * warning reason changes (e.g., crossing thresholds).
+		 */
+		if (complexityWarningStatus.isWarning) {
+			if (lastComplexityWarning !== complexityWarningStatus.message) {
+				Logger.warn('Query complexity warning', {
+					depth: queryComplexity.depth,
+					fieldCount: queryComplexity.fieldCount,
+					thresholds: {
+						depth: complexityWarningDepth,
+						fieldCount: complexityWarningFieldCount
+					}
+				});
+				lastComplexityWarning = complexityWarningStatus.message;
+			}
+		} else if (lastComplexityWarning) {
+			Logger.info('Query complexity warning cleared', {
+				depth: queryComplexity.depth,
+				fieldCount: queryComplexity.fieldCount
+			});
+			lastComplexityWarning = null;
+		}
+	});
+	$effect(() => {
 		if (getPreciseType(ast) == 'object') {
 			astAsString = JSON.stringify(ast);
 		}
@@ -756,6 +831,15 @@
 			<i class="bi bi-diagram-2"></i>
 			{queryComplexity.depth}/{queryComplexity.fieldCount}
 		</div>
+		{#if complexityWarningStatus.isWarning}
+			<div
+				class="badge badge-sm badge-warning gap-1 mr-2 hidden xl:inline-flex cursor-help"
+				title={complexityWarningStatus.message}
+			>
+				<i class="bi bi-exclamation-triangle"></i>
+				Complexity Warning
+			</div>
+		{/if}
 		<button
 			class="btn btn-xs btn-ghost text-primary font-bold transition-opacity"
 			aria-label="Execute Query"

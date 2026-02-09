@@ -175,6 +175,26 @@ Auto-GQL automatically measures and displays useful metrics for each query execu
 - **Response Size:** The approximate size of the response payload is shown in a badge (e.g., `<i class="bi bi-hdd-network"></i> 1.2 KB`).
 - **Query Complexity:** In the query editor, a real-time analysis of the query complexity (Depth / Field Count) is displayed to help estimate performance impact.
 
+## Query Guardrails
+
+GraphqlCodeDisplay can surface guardrails that warn users when queries are likely to be expensive or slow.
+
+- **Complexity Warnings:** Shows a warning badge when the query depth or field count exceeds configured thresholds.
+- **Slow Query Alerts:** Displays a warning toast and log when execution time exceeds the configured threshold.
+- **Disabling Guardrails:** Set a threshold to `0` (or a negative number) to disable the corresponding warning.
+
+**Configuration Example:**
+
+```svelte
+<GraphqlCodeDisplay
+	value={query}
+	variablesString={variables}
+	complexityWarningDepth={8}
+	complexityWarningFieldCount={120}
+	slowQueryThresholdMs={2000}
+/>
+```
+
 ## Query History
 
 Auto-GQL allows you to persist and restore executed queries.
