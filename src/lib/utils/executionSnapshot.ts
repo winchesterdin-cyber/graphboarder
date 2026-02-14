@@ -1,3 +1,4 @@
+import { Logger } from './logger';
 import { findExportableRows } from './resultExport';
 
 export interface ExecutionSnapshot {
@@ -37,9 +38,21 @@ export const buildExecutionSnapshot = ({
 	executionTimeMs,
 	responseSizeBytes
 }: BuildExecutionSnapshotParams): ExecutionSnapshot => {
-	const exportRowsInfo = findExportableRows(payload);
+	Logger.debug('Creating execution snapshot.', {
+		executionTimeMs,
+		responseSizeBytes,
+		resultLength: result.length
+	});
 
-	return {
+	const exportRowsInfo = findExportableRows(payload);
+	if (exportRowsInfo) {
+		Logger.info('Execution snapshot detected exportable rows.', {
+			path: exportRowsInfo.path,
+			rows: exportRowsInfo.rows.length
+		});
+	}
+
+	const snapshot: ExecutionSnapshot = {
 		createdAt: new Date().toISOString(),
 		result,
 		payload,
@@ -48,4 +61,11 @@ export const buildExecutionSnapshot = ({
 		exportRowsPath: exportRowsInfo?.path,
 		exportRowsCount: exportRowsInfo?.rows.length
 	};
+
+	Logger.debug('Execution snapshot created.', {
+		createdAt: snapshot.createdAt,
+		hasExportRows: Boolean(snapshot.exportRowsPath)
+	});
+
+	return snapshot;
 };
