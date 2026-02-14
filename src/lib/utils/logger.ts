@@ -33,6 +33,7 @@ export class LoggerService {
 	private level: LogLevel = LogLevel.DEBUG;
 	private logs: Writable<LogEntry[]> = writable([]);
 	private maxLogs = 500;
+	private shouldWriteToConsole = true;
 
 	constructor() {
 		// Default to DEBUG for now, could be configurable
@@ -44,6 +45,43 @@ export class LoggerService {
 	 */
 	setLevel(level: LogLevel) {
 		this.level = level;
+	}
+
+	/**
+	 * Parses and applies a log level from a string value.
+	 *
+	 * Returns true when the value is valid and false when ignored.
+	 */
+	setLevelFromString(level: string): boolean {
+		const normalizedLevel = level.trim().toUpperCase();
+		const levelValue = LogLevel[normalizedLevel as keyof typeof LogLevel];
+
+		if (typeof levelValue !== 'number') {
+			return false;
+		}
+
+		this.level = levelValue;
+		return true;
+	}
+
+	/**
+	 * Allows runtime control over in-memory retention.
+	 */
+	setMaxLogs(maxLogs: number): boolean {
+		if (!Number.isInteger(maxLogs) || maxLogs <= 0) {
+			return false;
+		}
+
+		this.maxLogs = maxLogs;
+		this.logs.update((currentLogs) => currentLogs.slice(0, this.maxLogs));
+		return true;
+	}
+
+	/**
+	 * Enable/disable console output while still preserving store logs.
+	 */
+	setConsoleOutput(enabled: boolean) {
+		this.shouldWriteToConsole = enabled;
 	}
 
 	/**
@@ -87,7 +125,9 @@ export class LoggerService {
 	 */
 	debug(...args: unknown[]) {
 		if (this.level <= LogLevel.DEBUG) {
-			console.debug(...this.formatMessage('DEBUG', ...args));
+			if (this.shouldWriteToConsole) {
+				console.debug(...this.formatMessage('DEBUG', ...args));
+			}
 			this.addLog('DEBUG', args);
 		}
 	}
@@ -98,7 +138,9 @@ export class LoggerService {
 	 */
 	info(...args: unknown[]) {
 		if (this.level <= LogLevel.INFO) {
-			console.info(...this.formatMessage('INFO', ...args));
+			if (this.shouldWriteToConsole) {
+				console.info(...this.formatMessage('INFO', ...args));
+			}
 			this.addLog('INFO', args);
 		}
 	}
@@ -109,7 +151,9 @@ export class LoggerService {
 	 */
 	warn(...args: unknown[]) {
 		if (this.level <= LogLevel.WARN) {
-			console.warn(...this.formatMessage('WARN', ...args));
+			if (this.shouldWriteToConsole) {
+				console.warn(...this.formatMessage('WARN', ...args));
+			}
 			this.addLog('WARN', args);
 		}
 	}
@@ -120,7 +164,9 @@ export class LoggerService {
 	 */
 	error(...args: unknown[]) {
 		if (this.level <= LogLevel.ERROR) {
-			console.error(...this.formatMessage('ERROR', ...args));
+			if (this.shouldWriteToConsole) {
+				console.error(...this.formatMessage('ERROR', ...args));
+			}
 			this.addLog('ERROR', args);
 		}
 	}

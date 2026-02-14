@@ -50,6 +50,35 @@ export const queryHistory = persisted<HistoryItem[]>('queryHistory', []);
  */
 export const queryCollections = persisted<QueryCollection[]>('queryCollections', []);
 
+const MAX_HISTORY_ITEMS = 50;
+
+/**
+ * Builds a deterministic identity key for history deduplication.
+ */
+const buildHistoryIdentity = (
+	item: Pick<HistoryItem, 'query' | 'endpointId' | 'variables' | 'operationName'>
+): string => {
+	const normalizedVariables = item.variables ? JSON.stringify(item.variables) : '';
+	return [item.endpointId, item.operationName, item.query.trim(), normalizedVariables].join('::');
+};
+
+/**
+ * Enforces deterministic max-capacity and dedupe behavior.
+ */
+const normalizeHistory = (history: HistoryItem[]): HistoryItem[] => {
+	const dedupedByIdentity = new Map<string, HistoryItem>();
+	for (const item of history) {
+		const identity = buildHistoryIdentity(item);
+		if (!dedupedByIdentity.has(identity)) {
+			dedupedByIdentity.set(identity, item);
+		}
+	}
+
+	return [...dedupedByIdentity.values()]
+		.sort((a, b) => b.timestamp - a.timestamp)
+		.slice(0, MAX_HISTORY_ITEMS);
+};
+
 /**
  * Adds a new item to the history.
  * If an identical query exists, it moves it to the top and updates the timestamp,
@@ -60,40 +89,37 @@ export const queryCollections = persisted<QueryCollection[]>('queryCollections',
 export const addToHistory = (item: Omit<HistoryItem, 'id' | 'timestamp'>) => {
 	Logger.debug('Adding to history', item);
 	queryHistory.update((history) => {
-		// Find if this query already exists
+		const incomingIdentity = buildHistoryIdentity(item);
 		const existingIndex = history.findIndex(
-			(h) => h.query === item.query && h.endpointId === item.endpointId
+			(historyItem) => buildHistoryIdentity(historyItem) === incomingIdentity
 		);
 
 		if (existingIndex !== -1) {
 			const existing = history[existingIndex];
-			// Move to top and update timestamp
-			const updated = {
+			const updated: HistoryItem = {
 				...existing,
 				...item,
 				timestamp: Date.now(),
-				// Ensure we keep existing custom fields if they aren't provided in the new item
-				name: existing.name,
-				isFavorite: existing.isFavorite,
-				collectionId: existing.collectionId
+				// Preserve user-managed metadata unless explicitly provided.
+				name: item.name ?? existing.name,
+				isFavorite: item.isFavorite ?? existing.isFavorite,
+				collectionId: item.collectionId ?? existing.collectionId
 			};
 
-			const newHistory = [...history];
-			newHistory.splice(existingIndex, 1);
-			return [updated, ...newHistory];
+			const withoutExisting = [...history];
+			withoutExisting.splice(existingIndex, 1);
+			return normalizeHistory([updated, ...withoutExisting]);
 		}
 
-		// Add new item
-		return [
-			{
-				...item,
-				id: crypto.randomUUID(),
-				timestamp: Date.now(),
-				isFavorite: false,
-				collectionId: null
-			},
-			...history
-		].slice(0, 50); // Keep last 50
+		const createdItem: HistoryItem = {
+			...item,
+			id: crypto.randomUUID(),
+			timestamp: Date.now(),
+			isFavorite: false,
+			collectionId: null
+		};
+
+		return normalizeHistory([createdItem, ...history]);
 	});
 };
 
@@ -235,7 +261,7 @@ export const importHistory = (json: string): { success: boolean; message: string
 			queryHistory.update((currentHistory) => {
 				const newItems = data.filter((item) => !currentHistory.some((h) => h.id === item.id));
 				addedCount = newItems.length;
-				return [...currentHistory, ...newItems];
+				return normalizeHistory([...currentHistory, ...newItems]);
 			});
 
 			return { success: true, message: `Imported ${addedCount} items (legacy format).` };
@@ -270,7 +296,7 @@ export const importHistory = (json: string): { success: boolean; message: string
 					(item) => !currentHistory.some((h) => h.id === item.id)
 				);
 				addedHistory = newItems.length;
-				return [...currentHistory, ...newItems];
+				return normalizeHistory([...currentHistory, ...newItems]);
 			});
 
 			return {

@@ -10,39 +10,25 @@ describe('shareUtils', () => {
 		expect(decompressed?.query).toBe(query);
 	});
 
-	it('should compress and decompress a complex string with variables', () => {
-		const query = `
-            query GetUser($id: ID!) {
-                user(id: $id) {
-                    id
-                    name
-                    posts {
-                        title
-                        content
-                    }
-                }
-            }
-        `;
-		const compressed = compressQuery(query);
+	it('should compress and decompress query data with variables', () => {
+		const query = 'query GetUser($id: ID!) { user(id: $id) { id name } }';
+		const variables = { id: 'user_1' };
+		const compressed = compressQuery(query, variables);
 		const decompressed = decompressQuery(compressed);
 		expect(decompressed).not.toBeNull();
 		expect(decompressed?.query).toBe(query);
+		expect(decompressed?.variables).toEqual(variables);
 	});
 
 	it('should handle empty string', () => {
 		const query = '';
 		const compressed = compressQuery(query);
 		const decompressed = decompressQuery(compressed);
-		// LZString compresses empty string to empty string,
-		// but decompressFromEncodedURIComponent("") returns null.
-		// Our decompressQuery returns { query: null } if we pass it null?
-		// No, `decompressQuery` returns `null` if `lz-string` returns null.
-		// So we expect null here.
 		expect(decompressed).toBeNull();
 	});
 
-	it('should return null or empty for invalid compressed string', () => {
+	it('should return null for invalid compressed string', () => {
 		const result = decompressQuery('not-compressed-string');
-		// Expecting it to not throw, result might be null or garbage object
+		expect(result).toBeNull();
 	});
 });

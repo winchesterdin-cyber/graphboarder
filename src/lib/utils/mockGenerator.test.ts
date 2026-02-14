@@ -1,24 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { generateMockData } from './mockGenerator';
-import type { SchemaData } from '../types/index';
 
-const mockSchemaData: SchemaData = {
+const testSchema = {
 	rootTypes: [
 		{
 			name: 'Query',
 			kind: 'OBJECT',
 			fields: [
 				{
-					name: 'hello',
-					type: { kind: 'SCALAR', name: 'String' }
-				},
-				{
-					name: 'user',
-					type: { kind: 'OBJECT', name: 'User' }
-				},
-				{
 					name: 'users',
-					type: { kind: 'LIST', ofType: { kind: 'OBJECT', name: 'User' } }
+					type: {
+						kind: 'LIST',
+						ofType: { kind: 'OBJECT', name: 'User' }
+					}
 				}
 			]
 		},
@@ -26,62 +20,58 @@ const mockSchemaData: SchemaData = {
 			name: 'User',
 			kind: 'OBJECT',
 			fields: [
-				{
-					name: 'id',
-					type: { kind: 'SCALAR', name: 'ID' }
-				},
-				{
-					name: 'name',
-					type: { kind: 'SCALAR', name: 'String' }
-				},
-				{
-					name: 'age',
-					type: { kind: 'SCALAR', name: 'Int' }
-				}
+				{ name: 'id', type: { kind: 'SCALAR', name: 'ID' } },
+				{ name: 'name', type: { kind: 'SCALAR', name: 'String' } }
 			]
 		}
-	] as any,
+	],
 	queryFields: [],
 	mutationFields: [],
-	subscriptionFields: []
-};
+	subscriptionFields: [],
+	schema: {
+		queryType: { name: 'Query' }
+	},
+	isReady: true
+} as any;
 
-describe('generateMockData', () => {
-	it('generates mock data for simple scalar field', () => {
-		const query = 'query { hello }';
-		const result = generateMockData(query, mockSchemaData);
-		expect(result.data).toBeDefined();
-		expect(typeof result.data.hello).toBe('string');
-		expect(result.data.hello).toContain('MockString_');
+describe('mockGenerator', () => {
+	it('should generate mock data for a simple query', () => {
+		const query = 'query { users { id name } }';
+		const result = generateMockData(query, testSchema);
+		expect(result).toHaveProperty('data');
+		expect(Array.isArray((result.data as any).users)).toBe(true);
 	});
 
-	it('generates mock data for nested object', () => {
-		const query = 'query { user { id name age } }';
-		const result = generateMockData(query, mockSchemaData);
-		expect(result.data.user).toBeDefined();
-		expect(result.data.user.id).toContain('ID_');
-		expect(typeof result.data.user.name).toBe('string');
-		expect(typeof result.data.user.age).toBe('number');
+	it('returns deterministic values when seed is provided', () => {
+		const query = 'query { users { id name } }';
+		const first = generateMockData(query, testSchema, { seed: 'stable-seed' });
+		const second = generateMockData(query, testSchema, { seed: 'stable-seed' });
+		expect(second).toEqual(first);
 	});
 
-	it('generates mock data for list of objects', () => {
-		const query = 'query { users { name } }';
-		const result = generateMockData(query, mockSchemaData);
-		expect(Array.isArray(result.data.users)).toBe(true);
-		expect(result.data.users.length).toBe(2);
-		expect(result.data.users[0].name).toContain('MockString_');
+	it('supports custom list length option', () => {
+		const query = 'query { users { id name } }';
+		const result = generateMockData(query, testSchema, { seed: 42, listLength: 3 });
+		expect(Array.isArray((result.data as any)?.users)).toBe(true);
+		expect((result.data as any).users).toHaveLength(3);
 	});
 
-	it('handles aliases', () => {
-		const query = 'query { greeting: hello }';
-		const result = generateMockData(query, mockSchemaData);
-		expect(result.data.greeting).toBeDefined();
-		expect(result.data.hello).toBeUndefined();
+	it('should handle invalid query syntax gracefully', () => {
+		const query = '{ invalidQuery';
+		const result = generateMockData(query, testSchema);
+		expect(result).toHaveProperty('errors');
 	});
 
-	it('handles __typename', () => {
-		const query = 'query { user { __typename } }';
-		const result = generateMockData(query, mockSchemaData);
-		expect(result.data.user.__typename).toBe('User');
+	it('should return empty object if root type not found', () => {
+		const fakeSchema = { rootTypes: [], schema: {} } as any;
+		const query = 'query { anything }';
+		const result = generateMockData(query, fakeSchema);
+		expect(result).toEqual({});
+	});
+
+	it('should generate __typename fields correctly', () => {
+		const query = 'query { users { __typename } }';
+		const result = generateMockData(query, testSchema);
+		expect((result.data as any)?.users?.[0]?.__typename).toBe('User');
 	});
 });

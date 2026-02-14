@@ -179,3 +179,44 @@ describe('History Import/Export', () => {
 		expect(finalCollections).toHaveLength(1);
 	});
 });
+
+describe('Query history dedupe and capacity', () => {
+	beforeEach(() => {
+		queryHistory.set([]);
+		queryCollections.set([]);
+	});
+
+	it('deduplicates by endpoint + operation + query + variables', async () => {
+		addToHistory({
+			query: '{ users { id } }',
+			endpointId: '1',
+			operationName: 'Users',
+			variables: { limit: 10 }
+		});
+		await new Promise((resolve) => setTimeout(resolve, 2));
+		addToHistory({
+			query: '{ users { id } }',
+			endpointId: '1',
+			operationName: 'Users',
+			variables: { limit: 10 }
+		});
+
+		const history = get(queryHistory);
+		expect(history).toHaveLength(1);
+		expect(history[0].query).toBe('{ users { id } }');
+	});
+
+	it('caps history to 50 items', () => {
+		for (let index = 0; index < 55; index += 1) {
+			addToHistory({
+				query: `{ user_${index} { id } }`,
+				endpointId: '1',
+				operationName: `User${index}`
+			});
+		}
+
+		const history = get(queryHistory);
+		expect(history).toHaveLength(50);
+		expect(history[0].operationName).toBe('User54');
+	});
+});

@@ -9,6 +9,7 @@
 	import { localEndpoints } from '$lib/stores/testData/testEndpoints';
 	import { Logger } from '$lib/utils/logger';
 	import { toast } from '$lib/stores/toastStore';
+	import { parseHeadersInput, validateEndpointUrl } from '$lib/utils/endpointValidation';
 
 	interface Props {
 		/**
@@ -62,29 +63,27 @@
 	function addEndpoint() {
 		if (!newName || !newUrl) return;
 
-		const id = crypto.randomUUID();
-		const headersObj: Record<string, string> = {};
-
-		if (newHeaders) {
-			try {
-				newHeaders.split('\n').forEach((line) => {
-					const [key, value] = line.split(':');
-					if (key && value) {
-						headersObj[key.trim()] = value.trim();
-					}
-				});
-			} catch (e) {
-				Logger.error('Failed to parse headers', e);
-				toast.error('Invalid headers format. Use Key:Value (one per line)');
-				return;
-			}
+		const urlValidation = validateEndpointUrl(newUrl);
+		if (!urlValidation.ok) {
+			Logger.warn('Endpoint URL validation failed.', { reason: urlValidation.error, newUrl });
+			toast.error(urlValidation.error || 'Invalid endpoint URL.');
+			return;
 		}
+
+		const parsedHeaders = parseHeadersInput(newHeaders);
+		if (!parsedHeaders.ok) {
+			Logger.error('Failed to parse endpoint headers.', { reason: parsedHeaders.error });
+			toast.error(parsedHeaders.error || 'Invalid headers format. Use Key: Value (one per line).');
+			return;
+		}
+
+		const id = crypto.randomUUID();
 
 		const newEndpoint = {
 			id,
-			url: newUrl,
-			description: newName, // Using description as display name
-			headers: headersObj,
+			url: newUrl.trim(),
+			description: newName.trim(), // Using description as display name
+			headers: parsedHeaders.headers,
 			isMantained: true // Assume user maintained
 		};
 

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { commandPaletteStore } from '$lib/stores/commandPalette';
 	import { clickOutside } from '$lib/actions/clickOutside';
-	import Fuse from 'fuse.js';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { Logger } from '$lib/utils/logger';
@@ -17,22 +16,8 @@
 	let selectedIndex = $state(0);
 	let searchInput = $state<HTMLInputElement>();
 
-	// Fuse instance
-	let fuse: Fuse<any> | undefined = $state();
-
-	$effect(() => {
-		if (commands) {
-			fuse = new Fuse(commands, {
-				keys: ['title', 'category', 'description'],
-				threshold: 0.4
-			});
-		}
-	});
-
-	let filteredCommands = $derived.by(() => {
-		if (!searchQuery || !fuse) return commands;
-		return fuse.search(searchQuery).map((result) => result.item);
-	});
+	// Rank commands using store-level ranking (fuzzy search + recency weighting).
+	let filteredCommands = $derived.by(() => commandPaletteStore.getRankedCommands(searchQuery));
 
 	// Reset selection when search changes
 	$effect(() => {
@@ -84,6 +69,7 @@
 			commandPaletteStore.close();
 			try {
 				Logger.debug(`Executing command: ${command.title}`);
+				commandPaletteStore.markUsed(command.id);
 				command.action();
 			} catch (e) {
 				Logger.error('Error executing command', e);
