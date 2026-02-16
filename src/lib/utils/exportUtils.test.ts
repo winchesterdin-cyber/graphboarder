@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { convertArrayToCSV, downloadTextFile } from './exportUtils';
+import { convertArrayToCSV, convertArrayToCSVWithMetadata, downloadTextFile } from './exportUtils';
 
 describe('exportUtils', () => {
 	describe('convertArrayToCSV', () => {
@@ -42,6 +42,41 @@ describe('exportUtils', () => {
 
 		it('should return empty string for empty array', () => {
 			expect(convertArrayToCSV([])).toBe('');
+		});
+
+		it('supports custom delimiter and sorted headers', () => {
+			const data = [{ b: 2, a: 1 }];
+			expect(convertArrayToCSV(data, { delimiter: ';', sortHeaders: true })).toBe('a;b\n1;2');
+		});
+
+		it('supports custom headers and BOM output', () => {
+			const data = [{ a: 1, b: 2 }];
+			const csv = convertArrayToCSV(data, { headers: ['b'], includeBom: true });
+			expect(csv.startsWith('\uFEFF')).toBe(true);
+			expect(csv).toContain('b\n2');
+		});
+
+		it('sanitizes spreadsheet formula payloads in safe mode', () => {
+			const data = [{ name: '=HYPERLINK("x")' }];
+			expect(convertArrayToCSV(data, { excelSafeMode: true })).toBe('name\n"\'=HYPERLINK(""x"")"');
+		});
+
+		it('serializes arrays using join mode', () => {
+			const data = [{ id: 1, tags: ['alpha', 'beta'] }];
+			expect(
+				convertArrayToCSV(data, {
+					arrayMode: 'join',
+					arrayJoinDelimiter: '|'
+				})
+			).toBe('id,tags\n1,alpha|beta');
+		});
+
+		it('returns metadata for diagnostics', () => {
+			const data = [{ id: 1 }, { id: 2 }];
+			const result = convertArrayToCSVWithMetadata(data);
+			expect(result.rowCount).toBe(2);
+			expect(result.headers).toEqual(['id']);
+			expect(result.csv).toContain('id');
 		});
 	});
 
