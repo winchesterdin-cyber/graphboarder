@@ -32,3 +32,21 @@
 3. Consider persisting command usage timestamps between sessions for long-term personalization.
 4. Add seeded-mock mode toggle in the UI (dev/debug panel) for reproducible demo snapshots.
 5. Keep e2e container image aligned with Playwright native dependencies (e.g., `libatk-1.0-0`).
+
+---
+
+## Export Workflow Enhancement Pass (Plan-backed)
+
+### Completed improvements
+
+- CSV conversion now supports configurable delimiter, line terminator, BOM, ordered/custom headers, safe spreadsheet mode, array/date formatting modes, and metadata return payloads.
+- Downloads now use a shared browser-safe trigger helper and filename normalization for safer cross-platform file naming.
+- Result export discovery now supports scoring, preferred path tokens, minimum row thresholds, and richer metadata (`depth`, `score`).
+- Added new diagnostics logs and implementation comments across conversion/download/discovery pipelines.
+
+### Validation summary
+
+- Extended `exportUtils` unit coverage with option and hardening behavior tests.
+- Extended `resultExport` unit coverage with ranking and filtering behavior tests.
+- Corrected CSV safe-mode unit expectation to account for RFC-compatible quoting when formulas include embedded quotes.
+- Added backward-compatible support for legacy numeric `maxDepth` arguments in `findExportableRows`, with explicit diagnostics for migration visibility.
