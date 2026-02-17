@@ -14,6 +14,7 @@ describe('findExportableRows', () => {
 		expect(result?.path).toBe('root.data.users');
 		expect(result?.rows).toEqual([{ id: 1, name: 'Ana' }]);
 		expect(result?.depth).toBe(2);
+		expect(result?.candidateCount).toBe(1);
 	});
 
 	it('skips arrays of primitives and finds nested object arrays', () => {
@@ -77,5 +78,74 @@ describe('findExportableRows', () => {
 
 		const result = findExportableRows(payload, { preferredPathTokens: ['results'] });
 		expect(result?.path).toBe('root.data.results');
+	});
+
+	it('supports excluded and required tokens', () => {
+		const payload = {
+			data: {
+				users: [{ id: 1 }],
+				archivedUsers: [{ id: 2 }]
+			}
+		};
+
+		const result = findExportableRows(payload, {
+			excludedPathTokens: ['archived'],
+			requirePathTokens: ['users']
+		});
+		expect(result?.path).toBe('root.data.users');
+	});
+
+	it('allows empty object rows when option is enabled', () => {
+		const payload = {
+			data: {
+				rows: [{}]
+			}
+		};
+
+		const blocked = findExportableRows(payload, { allowEmptyObjectRows: false });
+		expect(blocked).toBeNull();
+
+		const allowed = findExportableRows(payload, { allowEmptyObjectRows: true });
+		expect(allowed?.path).toBe('root.data.rows');
+	});
+
+	it('stops searching when maxCandidates is reached', () => {
+		const payload = {
+			data: {
+				first: [{ id: 1 }],
+				second: [{ id: 2 }],
+				third: [{ id: 3 }]
+			}
+		};
+
+		const result = findExportableRows(payload, { maxCandidates: 1 });
+		expect(result?.candidateCount).toBe(1);
+		expect(result?.path).toBe('root.data.first');
+		expect(result?.inspectedNodeCount).toBeGreaterThan(0);
+	});
+
+	it('supports score tuning with preferShallow and preferLargeDatasets', () => {
+		const payload = {
+			data: {
+				shallowSmall: [{ id: 1 }],
+				deep: {
+					nested: {
+						largeRows: [{ id: 10 }, { id: 11 }, { id: 12 }, { id: 13 }]
+					}
+				}
+			}
+		};
+
+		const shallowPreferred = findExportableRows(payload, {
+			preferShallow: true,
+			preferLargeDatasets: false
+		});
+		expect(shallowPreferred?.path).toBe('root.data.shallowSmall');
+
+		const largePreferred = findExportableRows(payload, {
+			preferShallow: false,
+			preferLargeDatasets: true
+		});
+		expect(largePreferred?.path).toBe('root.data.deep.nested.largeRows');
 	});
 });

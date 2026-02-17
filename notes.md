@@ -50,3 +50,13 @@
 - Extended `resultExport` unit coverage with ranking and filtering behavior tests.
 - Corrected CSV safe-mode unit expectation to account for RFC-compatible quoting when formulas include embedded quotes.
 - Added backward-compatible support for legacy numeric `maxDepth` arguments in `findExportableRows`, with explicit diagnostics for migration visibility.
+
+## 2026-02-16 Export hardening enhancement pass
+
+- Implemented 20 major export improvements across CSV conversion and exportable row discovery.
+- Added explicit logs for truncation, candidate limits, and path filtering behavior.
+- Added tests for new CSV options (quoting, row numbers, truncation, boolean/null/undefined formatting).
+- Added tests for discovery controls (required/excluded tokens, empty object handling, candidate budget).
+- Fixed `maxCandidates` enforcement in export-row discovery so processed candidate metadata is accurate and deterministic.
+- Added score-tuning coverage tests for `preferShallow` and `preferLargeDatasets` behavior.
+- Rebalanced depth scoring when `preferShallow` is enabled so shallow arrays are intentionally favored over deeper collections.

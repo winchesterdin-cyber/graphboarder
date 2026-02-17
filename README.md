@@ -508,3 +508,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development instructions.
 ## License
 
 MIT
+
+## Export utility enhancements
+
+The CSV/export pipeline now supports:
+
+- configurable quote mode (`auto`/`always`),
+- row numbering,
+- custom null/undefined and boolean representations,
+- maximum row and cell-length guards with truncation metadata,
+- header label remapping,
+- and improved exportable-row discovery controls (`required/excluded tokens`, candidate caps, and diagnostics).
+- Discovery candidate limiting now stops before over-counting, so `candidateCount` metadata reflects actual processed candidates.
+- `preferShallow` now uses a stronger depth weighting to make shallow collections win predictably when row counts are close.
