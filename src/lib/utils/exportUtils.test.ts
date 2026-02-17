@@ -71,11 +71,53 @@ describe('exportUtils', () => {
 			).toBe('id,tags\n1,alpha|beta');
 		});
 
+		it('supports configurable boolean/null/undefined values', () => {
+			const data = [{ active: true, deleted: false, nullable: null, unknown: undefined }];
+			expect(
+				convertArrayToCSV(data, {
+					booleanMode: 'numeric',
+					nullValue: 'NULL',
+					undefinedValue: 'UNDEFINED'
+				})
+			).toBe('active,deleted,nullable,unknown\n1,0,NULL,UNDEFINED');
+		});
+
+		it('supports row numbers and header labels', () => {
+			const data = [{ a: 1 }];
+			expect(
+				convertArrayToCSV(data, {
+					includeRowNumber: true,
+					rowNumberHeader: '__index',
+					headerLabelMap: { __index: '#', a: 'A Value' }
+				})
+			).toBe('#,A Value\n1,1');
+		});
+
+		it('supports trim and always quote mode', () => {
+			const data = [{ text: '  hello  ' }];
+			expect(convertArrayToCSV(data, { trimStringValues: true, quoteMode: 'always' })).toBe(
+				'"text"\n"hello"'
+			);
+		});
+
+		it('enforces max rows and max cell length in metadata mode', () => {
+			const data = [{ name: 'abcdef' }, { name: 'ghijkl' }, { name: 'mnopqr' }];
+			const result = convertArrayToCSVWithMetadata(data, {
+				maxRows: 2,
+				maxCellLength: 4,
+				truncateCellSuffix: '*'
+			});
+			expect(result.rowCount).toBe(2);
+			expect(result.truncatedRowCount).toBe(1);
+			expect(result.csv).toBe('name\nabc*\nghi*');
+		});
+
 		it('returns metadata for diagnostics', () => {
 			const data = [{ id: 1 }, { id: 2 }];
 			const result = convertArrayToCSVWithMetadata(data);
 			expect(result.rowCount).toBe(2);
 			expect(result.headers).toEqual(['id']);
+			expect(result.truncatedRowCount).toBe(0);
 			expect(result.csv).toContain('id');
 		});
 	});

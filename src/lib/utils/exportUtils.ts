@@ -12,12 +12,24 @@ export interface CsvConversionOptions {
 	arrayMode?: 'json' | 'join';
 	arrayJoinDelimiter?: string;
 	dateMode?: 'iso' | 'locale';
+	quoteMode?: 'auto' | 'always';
+	nullValue?: string;
+	undefinedValue?: string;
+	trimStringValues?: boolean;
+	includeRowNumber?: boolean;
+	rowNumberHeader?: string;
+	maxRows?: number;
+	maxCellLength?: number;
+	truncateCellSuffix?: string;
+	headerLabelMap?: Record<string, string>;
+	booleanMode?: 'literal' | 'numeric';
 }
 
 export interface CsvConversionResult {
 	csv: string;
 	headers: string[];
 	rowCount: number;
+	truncatedRowCount: number;
 }
 
 /**
@@ -62,7 +74,14 @@ const normalizeFilename = (filename: string, fallback: string): string => {
 
 const serializeCellValue = (value: unknown, options: Required<CsvConversionOptions>): string => {
 	if (value === null || value === undefined) {
-		return '';
+		return value === null ? options.nullValue : options.undefinedValue;
+	}
+
+	if (typeof value === 'boolean') {
+		if (options.booleanMode === 'numeric') {
+			return value ? '1' : '0';
+		}
+		return String(value);
 	}
 
 	if (Array.isArray(value)) {
@@ -80,10 +99,19 @@ const serializeCellValue = (value: unknown, options: Required<CsvConversionOptio
 		return JSON.stringify(value);
 	}
 
-	return String(value);
+	const stringValue = String(value);
+	return options.trimStringValues ? stringValue.trim() : stringValue;
 };
 
-const escapeCsvCell = (value: string, delimiter: string): string => {
+const escapeCsvCell = (
+	value: string,
+	delimiter: string,
+	quoteMode: Required<CsvConversionOptions>['quoteMode']
+): string => {
+	if (quoteMode === 'always') {
+		return `"${value.replace(/"/g, '""')}"`;
+	}
+
 	if (
 		value.includes(delimiter) ||
 		value.includes('"') ||
@@ -105,8 +133,36 @@ const normalizeCsvOptions = (options?: CsvConversionOptions): Required<CsvConver
 		excelSafeMode: options?.excelSafeMode ?? false,
 		arrayMode: options?.arrayMode || 'json',
 		arrayJoinDelimiter: options?.arrayJoinDelimiter || '; ',
-		dateMode: options?.dateMode || 'iso'
+		dateMode: options?.dateMode || 'iso',
+		quoteMode: options?.quoteMode || 'auto',
+		nullValue: options?.nullValue || '',
+		undefinedValue: options?.undefinedValue || '',
+		trimStringValues: options?.trimStringValues ?? false,
+		includeRowNumber: options?.includeRowNumber ?? false,
+		rowNumberHeader: options?.rowNumberHeader || '__rowNumber',
+		maxRows: options?.maxRows ?? Number.MAX_SAFE_INTEGER,
+		maxCellLength: options?.maxCellLength ?? Number.MAX_SAFE_INTEGER,
+		truncateCellSuffix: options?.truncateCellSuffix || '…',
+		headerLabelMap: options?.headerLabelMap || {},
+		booleanMode: options?.booleanMode || 'literal'
 	};
+};
+
+const truncateCellValue = (value: string, options: Required<CsvConversionOptions>): string => {
+	if (value.length <= options.maxCellLength) {
+		return value;
+	}
+
+	const maxPrefixLength = Math.max(0, options.maxCellLength - options.truncateCellSuffix.length);
+	Logger.warn('CSV cell value truncated due to maxCellLength', {
+		originalLength: value.length,
+		maxCellLength: options.maxCellLength
+	});
+	return `${value.slice(0, maxPrefixLength)}${options.truncateCellSuffix}`;
+};
+
+const mapHeaderLabel = (header: string, options: Required<CsvConversionOptions>): string => {
+	return options.headerLabelMap[header] ?? header;
 };
 
 /**
@@ -118,11 +174,12 @@ export const convertArrayToCSVWithMetadata = (
 ): CsvConversionResult => {
 	if (!data || !data.length) {
 		Logger.info('CSV export skipped because dataset is empty');
-		return { csv: '', headers: [], rowCount: 0 };
+		return { csv: '', headers: [], rowCount: 0, truncatedRowCount: 0 };
 	}
 
 	const normalizedOptions = normalizeCsvOptions(options);
-	const flatData = data.map((item) => flattenObject(item));
+	const selectedRows = data.slice(0, normalizedOptions.maxRows);
+	const flatData = selectedRows.map((item) => flattenObject(item));
 	const discoveredHeaders = Array.from(
 		new Set(flatData.reduce<string[]>((keys, row) => keys.concat(Object.keys(row)), []))
 	);
@@ -132,32 +189,59 @@ export const convertArrayToCSVWithMetadata = (
 			: normalizedOptions.sortHeaders
 				? [...discoveredHeaders].sort((left, right) => left.localeCompare(right))
 				: discoveredHeaders;
+	const dataHeaders = normalizedOptions.includeRowNumber
+		? [normalizedOptions.rowNumberHeader, ...headers]
+		: headers;
+	const outputHeaders = dataHeaders.map((header) => mapHeaderLabel(header, normalizedOptions));
 
-	const csvRows = flatData.map((row) =>
-		headers
+	const csvRows = flatData.map((row, index) =>
+		dataHeaders
 			.map((header) => {
-				const rawValue = serializeCellValue(row[header as keyof typeof row], normalizedOptions);
+				const rawRowValue =
+					normalizedOptions.includeRowNumber && header === normalizedOptions.rowNumberHeader
+						? index + 1
+						: row[header as keyof typeof row];
+				const rawValue = serializeCellValue(rawRowValue, normalizedOptions);
 				const safeValue = sanitizeExcelFormula(rawValue, normalizedOptions.excelSafeMode);
-				return escapeCsvCell(safeValue, normalizedOptions.delimiter);
+				const truncatedValue = truncateCellValue(safeValue, normalizedOptions);
+				return escapeCsvCell(
+					truncatedValue,
+					normalizedOptions.delimiter,
+					normalizedOptions.quoteMode
+				);
 			})
 			.join(normalizedOptions.delimiter)
 	);
 
-	const csvBody = [headers.join(normalizedOptions.delimiter), ...csvRows].join(
+	const escapedOutputHeaders = outputHeaders.map((header) =>
+		escapeCsvCell(header, normalizedOptions.delimiter, normalizedOptions.quoteMode)
+	);
+	const csvBody = [escapedOutputHeaders.join(normalizedOptions.delimiter), ...csvRows].join(
 		normalizedOptions.lineTerminator
 	);
 	const csv = normalizedOptions.includeBom ? `\uFEFF${csvBody}` : csvBody;
+	const truncatedRowCount = Math.max(0, data.length - selectedRows.length);
+
+	if (truncatedRowCount > 0) {
+		Logger.warn('CSV export row limit reached', {
+			requestedRows: data.length,
+			exportedRows: selectedRows.length,
+			truncatedRowCount
+		});
+	}
 
 	Logger.info('CSV export completed', {
-		rowCount: data.length,
-		headerCount: headers.length,
+		rowCount: selectedRows.length,
+		headerCount: outputHeaders.length,
+		truncatedRowCount,
 		options: normalizedOptions
 	});
 
 	return {
 		csv,
-		headers,
-		rowCount: data.length
+		headers: outputHeaders,
+		rowCount: selectedRows.length,
+		truncatedRowCount
 	};
 };
 
