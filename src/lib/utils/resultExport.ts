@@ -19,6 +19,11 @@ export interface ExportSearchOptions {
 	preferLargeDatasets?: boolean;
 	allowEmptyObjectRows?: boolean;
 	maxCandidates?: number;
+	minObjectKeys?: number;
+	minObjectRatio?: number;
+	maxInspectedNodes?: number;
+	includePathPattern?: string;
+	excludePathPattern?: string;
 }
 
 type ExportSearchInput = ExportSearchOptions | number;
@@ -74,6 +79,15 @@ const scoreCandidate = (
 	return rowScore + depthScore + tokenScore;
 };
 
+const computeObjectRatio = (list: unknown[]): number => {
+	if (!list.length) {
+		return 0;
+	}
+
+	const objectCount = list.filter((item) => isPlainObject(item)).length;
+	return objectCount / list.length;
+};
+
 /**
  * Finds the best export-friendly array of objects in a result payload.
  * The scoring model helps pick semantically meaningful arrays when several exist.
@@ -105,8 +119,16 @@ export const findExportableRows = (
 		preferShallow: normalizedOptions.preferShallow ?? true,
 		preferLargeDatasets: normalizedOptions.preferLargeDatasets ?? true,
 		allowEmptyObjectRows: normalizedOptions.allowEmptyObjectRows ?? false,
-		maxCandidates: normalizedOptions.maxCandidates ?? Number.MAX_SAFE_INTEGER
+		maxCandidates: normalizedOptions.maxCandidates ?? Number.MAX_SAFE_INTEGER,
+		minObjectKeys: normalizedOptions.minObjectKeys ?? 1,
+		minObjectRatio: normalizedOptions.minObjectRatio ?? 0,
+		maxInspectedNodes: normalizedOptions.maxInspectedNodes ?? Number.MAX_SAFE_INTEGER,
+		includePathPattern: normalizedOptions.includePathPattern ?? '.*',
+		excludePathPattern: normalizedOptions.excludePathPattern ?? '^$'
 	};
+
+	const includePathRegex = new RegExp(searchOptions.includePathPattern, 'i');
+	const excludePathRegex = new RegExp(searchOptions.excludePathPattern, 'i');
 
 	if (typeof options === 'number') {
 		Logger.info('Export row discovery used legacy maxDepth argument', {
@@ -129,6 +151,13 @@ export const findExportableRows = (
 		}
 
 		inspectedNodeCount += 1;
+		if (inspectedNodeCount > searchOptions.maxInspectedNodes) {
+			Logger.warn('Stopping export row discovery because maxInspectedNodes was reached', {
+				maxInspectedNodes: searchOptions.maxInspectedNodes
+			});
+			break;
+		}
+
 		const { value, path, depth } = current;
 		if (depth > searchOptions.maxDepth) {
 			continue;
@@ -139,7 +168,17 @@ export const findExportableRows = (
 			continue;
 		}
 
+		if (excludePathRegex.test(path)) {
+			Logger.debug('Skipping path because regex filters excluded it', { path });
+			continue;
+		}
+
 		if (Array.isArray(value)) {
+			if (!includePathRegex.test(path)) {
+				Logger.debug('Skipping array because includePathPattern does not match', { path });
+				continue;
+			}
+
 			if (!containsRequiredTokens(path, searchOptions.requirePathTokens)) {
 				Logger.debug('Skipping array because required path tokens are missing', { path });
 				continue;
@@ -163,6 +202,15 @@ export const findExportableRows = (
 				continue;
 			}
 
+			if (computeObjectRatio(value) < searchOptions.minObjectRatio) {
+				Logger.debug('Skipping array because object ratio threshold was not met', {
+					path,
+					requiredRatio: searchOptions.minObjectRatio,
+					actualRatio: computeObjectRatio(value)
+				});
+				continue;
+			}
+
 			const rows = value.filter((item) => {
 				if (!isPlainObject(item)) {
 					return false;
@@ -170,8 +218,12 @@ export const findExportableRows = (
 				if (searchOptions.allowEmptyObjectRows) {
 					return true;
 				}
-				return Object.keys(item).length > 0;
+				return Object.keys(item).length >= searchOptions.minObjectKeys;
 			}) as Record<string, unknown>[];
+
+			if (rows.length === 0) {
+				continue;
+			}
 
 			if (rows.length < searchOptions.minRows) {
 				continue;

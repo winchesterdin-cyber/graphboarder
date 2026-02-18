@@ -148,4 +148,51 @@ describe('findExportableRows', () => {
 		});
 		expect(largePreferred?.path).toBe('root.data.deep.nested.largeRows');
 	});
+
+	it('supports minimum key count and object ratio thresholds', () => {
+		const payload = {
+			data: {
+				mixed: [{ id: 1 }, 'x', { id: 2, extra: true }],
+				rich: [
+					{ id: 1, extra: true },
+					{ id: 2, extra: false }
+				]
+			}
+		};
+
+		const strict = findExportableRows(payload, {
+			minObjectKeys: 2,
+			minObjectRatio: 0.75
+		});
+		expect(strict?.path).toBe('root.data.rich');
+	});
+
+	it('supports regex include/exclude path filters', () => {
+		const payload = {
+			data: {
+				allowedRows: [{ id: 1 }],
+				debugRows: [{ id: 2 }]
+			}
+		};
+
+		const result = findExportableRows(payload, {
+			includePathPattern: 'allowed',
+			excludePathPattern: 'debug'
+		});
+		expect(result?.path).toBe('root.data.allowedRows');
+	});
+
+	it('stops traversal when maxInspectedNodes is reached', () => {
+		const payload = {
+			data: {
+				a: { b: { c: [{ id: 1 }] } }
+			}
+		};
+
+		const blocked = findExportableRows(payload, { maxInspectedNodes: 2 });
+		expect(blocked).toBeNull();
+
+		const found = findExportableRows(payload, { maxInspectedNodes: 10 });
+		expect(found?.path).toBe('root.data.a.b.c');
+	});
 });

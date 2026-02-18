@@ -1,50 +1,44 @@
-# Comprehensive Feature Enhancement Plan and Full Implementation Record
+# Comprehensive Export Reliability Enhancement Plan (Implemented)
 
-## Objective
+## Scope
 
-Deliver a robust, production-safe export pipeline with deep configurability, deterministic behavior, better diagnostics, and stronger discovery of exportable tabular data.
+This plan focuses on hardening the CSV conversion and export-row discovery pipeline with deterministic controls, richer diagnostics, and stricter filtering options.
 
-## Major Improvements (20 total, fully implemented)
+## 20 Major Improvements (all implemented)
 
-### CSV/export pipeline improvements
+### CSV conversion enhancements
 
-1. Added configurable CSV quote strategy (`auto` and `always`).
-2. Added `nullValue` serialization override.
-3. Added `undefinedValue` serialization override.
-4. Added optional whitespace trimming for scalar string cell values.
-5. Added row-number column injection (`includeRowNumber`).
-6. Added custom row-number header naming (`rowNumberHeader`).
-7. Added max-row export cap (`maxRows`) to prevent oversized file output.
-8. Added row truncation metadata (`truncatedRowCount`) in conversion results.
-9. Added max-cell-length truncation guard (`maxCellLength`).
-10. Added custom truncation suffix (`truncateCellSuffix`).
-11. Added header display label remapping (`headerLabelMap`) while preserving source keys.
-12. Added boolean serialization mode controls (`literal` and `numeric`).
+1. Added `omitHeaderRow` option for payload-only CSV exports.
+2. Added `skipEmptyRows` option to remove rows with empty serialized cells.
+3. Added `trimHeaders` option for cleaner display headers.
+4. Added `dedupeHeaders` option to avoid duplicate header collisions.
+5. Added `lineBreakMode` option (`preserve`, `lf`, `space`) for string normalization.
+6. Added safe fallback serialization and warning logs for unserializable object values.
+7. Added `skippedRowCount` to CSV metadata response.
+8. Added explicit exported-row diagnostics (`rowCount` now reflects emitted rows).
+9. Preserved source-key vs display-header mapping so trimmed/deduped labels do not break row value lookup.
+10. Expanded option-level completion logs with skipped/exported row details.
 
-### Exportable-row discovery improvements
+### Export-row discovery enhancements
 
-13. Added excluded path token filter (`excludedPathTokens`) to avoid metadata/error branches.
-14. Added required path token filter (`requirePathTokens`) to target known domain branches.
-15. Added configurable shallow-bias scoring switch (`preferShallow`).
-16. Added configurable large-dataset scoring switch (`preferLargeDatasets`).
-17. Added support for empty-object rows when explicitly enabled (`allowEmptyObjectRows`).
-18. Added candidate processing cap (`maxCandidates`) for deterministic runtime in huge payloads.
-19. Added candidate count diagnostics (`candidateCount`) to selection results.
-20. Added inspected node diagnostics (`inspectedNodeCount`) to selection results.
+11. Added `minObjectKeys` filter to require richer row object shape.
+12. Added `minObjectRatio` to avoid selecting arrays dominated by primitives.
+13. Added `maxInspectedNodes` traversal guard for bounded runtime.
+14. Added `includePathPattern` regex filter for allow-list path targeting.
+15. Added `excludePathPattern` regex filter for block-list path targeting.
+16. Added regex-based skip diagnostics for traversal transparency.
+17. Added object-ratio threshold diagnostics when candidates are rejected.
+18. Prevented empty candidate promotion when filters remove all object rows.
+19. Preserved deterministic candidate accounting with new filters enabled.
+20. Added dedicated tests to verify all newly introduced discovery controls.
 
-## Test and verification plan
+## Verification checklist
 
-- Lint/format/type checks.
-- Updated CSV utility tests to validate all newly introduced options and metadata.
-- Updated exportable-row discovery tests to validate filtering/scoring/candidate controls and diagnostics.
-- Full unit test suite run to confirm regression safety.
-
-## Documentation and maintenance notes
-
-- Added inline comments in export and discovery logic where context matters (security, scoring, truncation limits).
-- Logged operational metadata in all new pathways for observability.
-- Updated this plan as implementation progressed so engineering notes stay current with shipped code.
+- Lint/format checks were run after each implementation batch.
+- Unit tests for `exportUtils` were updated and executed.
+- Unit tests for `resultExport` were updated and executed.
+- Repository notes were updated with behavior and maintenance guidance.
 
 ## Completion status
 
-✅ All 20 major improvements listed above have been implemented and covered by tests.
+✅ Completed and validated.
