@@ -109,7 +109,38 @@ describe('exportUtils', () => {
 			});
 			expect(result.rowCount).toBe(2);
 			expect(result.truncatedRowCount).toBe(1);
+			expect(result.skippedRowCount).toBe(0);
 			expect(result.csv).toBe('name\nabc*\nghi*');
+		});
+
+		it('supports skipping empty rows and omitting header rows', () => {
+			const data = [{ a: '' }, { a: 'kept' }, { a: '' }];
+			const result = convertArrayToCSVWithMetadata(data, {
+				skipEmptyRows: true,
+				omitHeaderRow: true
+			});
+			expect(result.csv).toBe('kept');
+			expect(result.rowCount).toBe(1);
+			expect(result.skippedRowCount).toBe(2);
+		});
+
+		it('supports header cleanup and line break normalization', () => {
+			const data = [{ ' name ': 'line1\r\nline2' }];
+			expect(
+				convertArrayToCSV(data, {
+					trimHeaders: true,
+					lineBreakMode: 'space'
+				})
+			).toBe('name\nline1 line2');
+		});
+
+		it('deduplicates headers when requested', () => {
+			const data = [{ a: 1 }];
+			const csv = convertArrayToCSV(data, {
+				headers: ['a', 'a'],
+				dedupeHeaders: true
+			});
+			expect(csv).toBe('a,a_2\n1,1');
 		});
 
 		it('returns metadata for diagnostics', () => {
@@ -118,6 +149,7 @@ describe('exportUtils', () => {
 			expect(result.rowCount).toBe(2);
 			expect(result.headers).toEqual(['id']);
 			expect(result.truncatedRowCount).toBe(0);
+			expect(result.skippedRowCount).toBe(0);
 			expect(result.csv).toContain('id');
 		});
 	});

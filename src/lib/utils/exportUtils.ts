@@ -23,6 +23,11 @@ export interface CsvConversionOptions {
 	truncateCellSuffix?: string;
 	headerLabelMap?: Record<string, string>;
 	booleanMode?: 'literal' | 'numeric';
+	omitHeaderRow?: boolean;
+	skipEmptyRows?: boolean;
+	trimHeaders?: boolean;
+	dedupeHeaders?: boolean;
+	lineBreakMode?: 'preserve' | 'lf' | 'space';
 }
 
 export interface CsvConversionResult {
@@ -30,6 +35,7 @@ export interface CsvConversionResult {
 	headers: string[];
 	rowCount: number;
 	truncatedRowCount: number;
+	skippedRowCount: number;
 }
 
 /**
@@ -96,11 +102,31 @@ const serializeCellValue = (value: unknown, options: Required<CsvConversionOptio
 	}
 
 	if (typeof value === 'object') {
-		return JSON.stringify(value);
+		try {
+			return JSON.stringify(value);
+		} catch (error) {
+			Logger.warn('CSV object serialization fallback used', { error });
+			return '[unserializable-object]';
+		}
 	}
 
 	const stringValue = String(value);
-	return options.trimStringValues ? stringValue.trim() : stringValue;
+	const normalizedLineBreaks =
+		options.lineBreakMode === 'preserve'
+			? stringValue
+			: options.lineBreakMode === 'lf'
+				? stringValue.replace(/\r\n?/g, '\n')
+				: stringValue.replace(/\r\n?|\n/g, ' ');
+	return options.trimStringValues ? normalizedLineBreaks.trim() : normalizedLineBreaks;
+};
+
+const dedupeHeaderList = (headers: string[]): string[] => {
+	const counter = new Map<string, number>();
+	return headers.map((header) => {
+		const nextCount = (counter.get(header) ?? 0) + 1;
+		counter.set(header, nextCount);
+		return nextCount === 1 ? header : `${header}_${nextCount}`;
+	});
 };
 
 const escapeCsvCell = (
@@ -144,7 +170,12 @@ const normalizeCsvOptions = (options?: CsvConversionOptions): Required<CsvConver
 		maxCellLength: options?.maxCellLength ?? Number.MAX_SAFE_INTEGER,
 		truncateCellSuffix: options?.truncateCellSuffix || '…',
 		headerLabelMap: options?.headerLabelMap || {},
-		booleanMode: options?.booleanMode || 'literal'
+		booleanMode: options?.booleanMode || 'literal',
+		omitHeaderRow: options?.omitHeaderRow ?? false,
+		skipEmptyRows: options?.skipEmptyRows ?? false,
+		trimHeaders: options?.trimHeaders ?? false,
+		dedupeHeaders: options?.dedupeHeaders ?? false,
+		lineBreakMode: options?.lineBreakMode || 'preserve'
 	};
 };
 
@@ -174,7 +205,7 @@ export const convertArrayToCSVWithMetadata = (
 ): CsvConversionResult => {
 	if (!data || !data.length) {
 		Logger.info('CSV export skipped because dataset is empty');
-		return { csv: '', headers: [], rowCount: 0, truncatedRowCount: 0 };
+		return { csv: '', headers: [], rowCount: 0, truncatedRowCount: 0, skippedRowCount: 0 };
 	}
 
 	const normalizedOptions = normalizeCsvOptions(options);
@@ -189,18 +220,42 @@ export const convertArrayToCSVWithMetadata = (
 			: normalizedOptions.sortHeaders
 				? [...discoveredHeaders].sort((left, right) => left.localeCompare(right))
 				: discoveredHeaders;
-	const dataHeaders = normalizedOptions.includeRowNumber
-		? [normalizedOptions.rowNumberHeader, ...headers]
-		: headers;
-	const outputHeaders = dataHeaders.map((header) => mapHeaderLabel(header, normalizedOptions));
+	const headerDescriptors = headers.map((header) => ({
+		sourceKey: header,
+		headerKey: normalizedOptions.trimHeaders ? header.trim() : header
+	}));
 
-	const csvRows = flatData.map((row, index) =>
-		dataHeaders
-			.map((header) => {
+	const dedupedHeaderDescriptors = normalizedOptions.dedupeHeaders
+		? dedupeHeaderList(headerDescriptors.map((header) => header.headerKey)).map(
+				(headerKey, index) => ({
+					...headerDescriptors[index],
+					headerKey
+				})
+			)
+		: headerDescriptors;
+
+	const dataHeaders = normalizedOptions.includeRowNumber
+		? [
+				{
+					sourceKey: normalizedOptions.rowNumberHeader,
+					headerKey: normalizedOptions.rowNumberHeader
+				},
+				...dedupedHeaderDescriptors
+			]
+		: dedupedHeaderDescriptors;
+	const outputHeaders = dataHeaders.map((header) =>
+		mapHeaderLabel(header.headerKey, normalizedOptions)
+	);
+	let skippedRowCount = 0;
+
+	const csvRows = flatData
+		.map((row, index) =>
+			dataHeaders.map((header) => {
 				const rawRowValue =
-					normalizedOptions.includeRowNumber && header === normalizedOptions.rowNumberHeader
+					normalizedOptions.includeRowNumber &&
+					header.sourceKey === normalizedOptions.rowNumberHeader
 						? index + 1
-						: row[header as keyof typeof row];
+						: row[header.sourceKey as keyof typeof row];
 				const rawValue = serializeCellValue(rawRowValue, normalizedOptions);
 				const safeValue = sanitizeExcelFormula(rawValue, normalizedOptions.excelSafeMode);
 				const truncatedValue = truncateCellValue(safeValue, normalizedOptions);
@@ -210,15 +265,26 @@ export const convertArrayToCSVWithMetadata = (
 					normalizedOptions.quoteMode
 				);
 			})
-			.join(normalizedOptions.delimiter)
-	);
+		)
+		.filter((cells) => {
+			if (!normalizedOptions.skipEmptyRows) {
+				return true;
+			}
+			const isEmpty = cells.every((cell) => cell === '');
+			if (isEmpty) {
+				skippedRowCount += 1;
+			}
+			return !isEmpty;
+		})
+		.map((cells) => cells.join(normalizedOptions.delimiter));
 
 	const escapedOutputHeaders = outputHeaders.map((header) =>
 		escapeCsvCell(header, normalizedOptions.delimiter, normalizedOptions.quoteMode)
 	);
-	const csvBody = [escapedOutputHeaders.join(normalizedOptions.delimiter), ...csvRows].join(
-		normalizedOptions.lineTerminator
-	);
+	const csvSegments = normalizedOptions.omitHeaderRow
+		? [...csvRows]
+		: [escapedOutputHeaders.join(normalizedOptions.delimiter), ...csvRows];
+	const csvBody = csvSegments.join(normalizedOptions.lineTerminator);
 	const csv = normalizedOptions.includeBom ? `\uFEFF${csvBody}` : csvBody;
 	const truncatedRowCount = Math.max(0, data.length - selectedRows.length);
 
@@ -232,6 +298,8 @@ export const convertArrayToCSVWithMetadata = (
 
 	Logger.info('CSV export completed', {
 		rowCount: selectedRows.length,
+		exportedRowCount: csvRows.length,
+		skippedRowCount,
 		headerCount: outputHeaders.length,
 		truncatedRowCount,
 		options: normalizedOptions
@@ -240,8 +308,9 @@ export const convertArrayToCSVWithMetadata = (
 	return {
 		csv,
 		headers: outputHeaders,
-		rowCount: selectedRows.length,
-		truncatedRowCount
+		rowCount: csvRows.length,
+		truncatedRowCount,
+		skippedRowCount
 	};
 };
 

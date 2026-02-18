@@ -60,3 +60,12 @@
 - Fixed `maxCandidates` enforcement in export-row discovery so processed candidate metadata is accurate and deterministic.
 - Added score-tuning coverage tests for `preferShallow` and `preferLargeDatasets` behavior.
 - Rebalanced depth scoring when `preferShallow` is enabled so shallow arrays are intentionally favored over deeper collections.
+
+## 2026-02-17 CSV and export-discovery reliability pass
+
+- CSV exports now support header suppression (`omitHeaderRow`), empty-row suppression (`skipEmptyRows`), header cleanup (`trimHeaders`), header dedupe (`dedupeHeaders`), and line-break normalization (`lineBreakMode`).
+- CSV metadata now includes `skippedRowCount`, and `rowCount` reflects emitted rows after filtering.
+- CSV header processing now separates source-key lookup from display-label rendering, preventing value loss when header labels are transformed.
+- Export discovery now supports structural filters and runtime guards: `minObjectKeys`, `minObjectRatio`, `maxInspectedNodes`, `includePathPattern`, and `excludePathPattern`.
+- Added diagnostics logs for regex skips, object-ratio threshold rejections, and traversal cap early-exit behavior.
+- Extended unit coverage in `exportUtils.test.ts` and `resultExport.test.ts` to validate every newly added option.
