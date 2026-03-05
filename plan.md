@@ -1,44 +1,37 @@
-# Comprehensive Export Reliability Enhancement Plan (Implemented)
+# Endpoint Management Enhancement Plan
 
-## Scope
+This plan upgrades endpoint validation and endpoint manager behavior with a comprehensive reliability and safety pass. Every item below has been implemented and verified with automated tests.
 
-This plan focuses on hardening the CSV conversion and export-row discovery pipeline with deterministic controls, richer diagnostics, and stricter filtering options.
+## Implemented Improvements (20)
 
-## 20 Major Improvements (all implemented)
+1. Add URL normalization output so callers can store canonical endpoint URLs.
+2. Auto-infer protocol for protocol-less URLs (`https://` default, `http://` for localhost).
+3. Enforce strict URL max length guardrail (`2048`).
+4. Reject URL whitespace to avoid malformed endpoint entries.
+5. Reject inline URL credentials (`user:pass@host`).
+6. Reject URL hash fragments for endpoint safety.
+7. Emit warnings when query-string parameters are present.
+8. Emit warnings when endpoint path does not look GraphQL-like.
+9. Emit warnings for insecure non-localhost HTTP usage.
+10. Return structured URL warnings instead of string-only responses.
+11. Introduce strict RFC-like header-name token validation.
+12. Add comment support (`#` and `//`) in multiline header input.
+13. Add wrapping quote normalization for header values.
+14. Aggregate header parsing errors with line-level diagnostics.
+15. Reject duplicate headers in a case-insensitive manner.
+16. Reject hop-by-hop and transport-managed headers (e.g., `Connection`, `Host`).
+17. Add header count limits (50 lines) to prevent abuse.
+18. Add line and value length limits for defensive parsing.
+19. Emit warnings for environment placeholder header values (`${TOKEN}`).
+20. Emit warnings for non-Bearer authorization formats and surface warnings in the UI.
 
-### CSV conversion enhancements
+## Implementation Notes
 
-1. Added `omitHeaderRow` option for payload-only CSV exports.
-2. Added `skipEmptyRows` option to remove rows with empty serialized cells.
-3. Added `trimHeaders` option for cleaner display headers.
-4. Added `dedupeHeaders` option to avoid duplicate header collisions.
-5. Added `lineBreakMode` option (`preserve`, `lf`, `space`) for string normalization.
-6. Added safe fallback serialization and warning logs for unserializable object values.
-7. Added `skippedRowCount` to CSV metadata response.
-8. Added explicit exported-row diagnostics (`rowCount` now reflects emitted rows).
-9. Preserved source-key vs display-header mapping so trimmed/deduped labels do not break row value lookup.
-10. Expanded option-level completion logs with skipped/exported row details.
+- Core logic was upgraded in `src/lib/utils/endpointValidation.ts` with typed result structures, warnings, guardrails, and detailed logging.
+- Component integration was completed in `src/lib/components/UI/EndpointManager.svelte`, including warning toasts/logging and use of normalized URLs.
+- Unit tests were expanded in `src/lib/utils/endpointValidation.test.ts` to verify success, warnings, and failure paths.
 
-### Export-row discovery enhancements
+## Verification
 
-11. Added `minObjectKeys` filter to require richer row object shape.
-12. Added `minObjectRatio` to avoid selecting arrays dominated by primitives.
-13. Added `maxInspectedNodes` traversal guard for bounded runtime.
-14. Added `includePathPattern` regex filter for allow-list path targeting.
-15. Added `excludePathPattern` regex filter for block-list path targeting.
-16. Added regex-based skip diagnostics for traversal transparency.
-17. Added object-ratio threshold diagnostics when candidates are rejected.
-18. Prevented empty candidate promotion when filters remove all object rows.
-19. Preserved deterministic candidate accounting with new filters enabled.
-20. Added dedicated tests to verify all newly introduced discovery controls.
-
-## Verification checklist
-
-- Lint/format checks were run after each implementation batch.
-- Unit tests for `exportUtils` were updated and executed.
-- Unit tests for `resultExport` were updated and executed.
-- Repository notes were updated with behavior and maintenance guidance.
-
-## Completion status
-
-✅ Completed and validated.
+- Formatting, linting, type checks, and full test suites were run successfully after implementation.
+- The endpoint validation tests now cover protocol inference, URL safety constraints, warning generation, header aggregation behavior, duplicate detection, and limits.
