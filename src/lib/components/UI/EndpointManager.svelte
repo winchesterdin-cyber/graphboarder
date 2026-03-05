@@ -70,18 +70,36 @@
 			return;
 		}
 
+		if (urlValidation.warnings.length > 0) {
+			// Non-blocking warnings are surfaced to users because endpoint misconfiguration is common.
+			for (const warning of urlValidation.warnings) {
+				Logger.warn('Endpoint URL warning.', warning);
+			}
+			toast.warning(urlValidation.warnings[0].message);
+		}
+
 		const parsedHeaders = parseHeadersInput(newHeaders);
 		if (!parsedHeaders.ok) {
-			Logger.error('Failed to parse endpoint headers.', { reason: parsedHeaders.error });
+			Logger.error('Failed to parse endpoint headers.', {
+				reason: parsedHeaders.error,
+				errors: parsedHeaders.errors
+			});
 			toast.error(parsedHeaders.error || 'Invalid headers format. Use Key: Value (one per line).');
 			return;
+		}
+
+		if (parsedHeaders.warnings.length > 0) {
+			for (const warning of parsedHeaders.warnings) {
+				Logger.warn('Endpoint header warning.', warning);
+			}
+			toast.warning(parsedHeaders.warnings[0].message);
 		}
 
 		const id = crypto.randomUUID();
 
 		const newEndpoint = {
 			id,
-			url: newUrl.trim(),
+			url: urlValidation.normalizedUrl || newUrl.trim(),
 			description: newName.trim(), // Using description as display name
 			headers: parsedHeaders.headers,
 			isMantained: true // Assume user maintained

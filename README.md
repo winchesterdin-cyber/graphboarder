@@ -521,3 +521,14 @@ The CSV/export pipeline now supports:
 - and improved exportable-row discovery controls (`required/excluded tokens`, candidate caps, and diagnostics).
 - Discovery candidate limiting now stops before over-counting, so `candidateCount` metadata reflects actual processed candidates.
 - `preferShallow` now uses a stronger depth weighting to make shallow collections win predictably when row counts are close.
+
+## Endpoint Validation Enhancements
+
+Endpoint configuration now includes stricter safety checks and better diagnostics:
+
+- URL normalization and protocol inference for host-only values.
+- Explicit rejection of inline credentials and hash fragments.
+- Warnings for insecure HTTP, non-GraphQL-looking paths, and query-string usage.
+- Header parsing improvements including comment support, duplicate detection, blocked transport headers, and detailed line-level errors.
+
+These checks are used by the endpoint manager workflow and are covered with dedicated tests.
